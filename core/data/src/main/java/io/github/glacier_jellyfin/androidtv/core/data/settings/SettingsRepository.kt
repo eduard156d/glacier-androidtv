@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -22,12 +23,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
-/** Settings of every profile on this device, keyed by [profileKey]. */
+/** Device settings and every profile's settings on this TV, keyed by [profileKey]. */
 @Serializable
 data class SettingsState(
     val profiles: Map<String, ProfileSettings> = emptyMap(),
     /** Profiles already asked whether to take the settings of another device (see [SettingsSync]). */
     val restoreOffered: Set<String> = emptySet(),
+    val videoOutput: VideoOutput = VideoOutput.SurfaceView,
 )
 
 internal fun profileKey(serverId: String, userId: String) = "$serverId/$userId"
@@ -73,6 +75,13 @@ class SettingsRepository @Inject constructor(
 
     val settings: StateFlow<ProfileSettings> = active.map { it ?: ProfileSettings() }
         .stateIn(scope, SharingStarted.Eagerly, ProfileSettings())
+
+    /** Device-local: changing profiles or adopting another TV's settings does not change the video output. */
+    val videoOutput: Flow<VideoOutput> = store.data.map { it.videoOutput }.distinctUntilChanged()
+
+    suspend fun setVideoOutput(output: VideoOutput) {
+        store.updateData { it.copy(videoOutput = output) }
+    }
 
     /** The accent of each profile of [serverId] on this device, by user id; profiles never set up are left out. */
     fun accents(serverId: String): Flow<Map<String, AccentColor>> = store.data.map { state ->

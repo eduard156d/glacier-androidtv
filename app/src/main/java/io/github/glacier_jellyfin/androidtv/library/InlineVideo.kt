@@ -3,6 +3,7 @@ package io.github.glacier_jellyfin.androidtv.library
 import android.content.Context
 import androidx.media3.common.Player
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackRepository
+import io.github.glacier_jellyfin.androidtv.core.data.settings.VideoOutput
 import io.github.glacier_jellyfin.androidtv.core.log.Log
 import io.github.glacier_jellyfin.androidtv.core.player.GlacierPlayer
 import io.github.glacier_jellyfin.androidtv.core.player.StreamRequest
@@ -22,6 +23,7 @@ import kotlinx.coroutines.launch
 data class InlineVideoState(
     val id: UUID? = null,
     val player: Player? = null,
+    val videoOutput: VideoOutput = VideoOutput.TextureView,
     val progress: Float = 0f,
 )
 
@@ -30,12 +32,14 @@ data class InlineVideoState(
  * gallery's preview. Opens its stream, plays it and reports how far it has come; [onEnded] when it
  * plays to its end, also when it cannot be opened. Nothing is reported to the server: the full
  * player does that once OK hands the video over.
+ * [readVideoOutput] is sampled before each new player; gallery previews keep TextureView for clipping.
  */
 class InlineVideo(
     private val context: Context,
     private val playback: PlaybackRepository,
     private val scope: CoroutineScope,
     private val onEnded: () -> Unit = {},
+    private val readVideoOutput: suspend () -> VideoOutput = { VideoOutput.TextureView },
 ) {
     private val _state = MutableStateFlow(InlineVideoState())
     val state: StateFlow<InlineVideoState> = _state.asStateFlow()
@@ -67,6 +71,7 @@ class InlineVideo(
         opening = scope.launch {
             try {
                 delay(delayMs)
+                val videoOutput = readVideoOutput()
                 val source = playback.open(id, startMs = startMs, audioIndex = null, subtitleIndex = null)
                 val player = GlacierPlayer.create(
                     context,
@@ -79,7 +84,7 @@ class InlineVideo(
                 ).player
                 player.addListener(listener)
                 player.playWhenReady = true
-                _state.update { it.copy(player = player, progress = 0f) }
+                _state.update { it.copy(player = player, videoOutput = videoOutput, progress = 0f) }
                 ticker = scope.launch {
                     while (isActive) {
                         val duration = player.duration.takeIf { it > 0 }

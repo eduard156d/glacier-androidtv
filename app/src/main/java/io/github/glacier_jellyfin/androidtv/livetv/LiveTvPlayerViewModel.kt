@@ -25,6 +25,7 @@ import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackRepositor
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackSource
 import io.github.glacier_jellyfin.androidtv.core.data.playback.TranscodeStatus
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsRepository
+import io.github.glacier_jellyfin.androidtv.core.data.settings.VideoOutput
 import io.github.glacier_jellyfin.androidtv.core.log.Log
 import io.github.glacier_jellyfin.androidtv.core.player.GlacierPlayback
 import io.github.glacier_jellyfin.androidtv.core.player.GlacierPlayer
@@ -42,6 +43,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -62,6 +64,7 @@ data class LiveTvPlayerState(
     val guideLoaded: Boolean = false,
     val player: ExoPlayer? = null,
     val playback: GlacierPlayback? = null,
+    val videoOutput: VideoOutput = VideoOutput.SurfaceView,
     /** How the server sends the channel, for the info panel. */
     val source: PlaybackSource? = null,
     /** Until the first frame of the channel can be shown. */
@@ -101,7 +104,7 @@ class LiveTvPlayerViewModel @Inject constructor(
     private val playback: PlaybackRepository,
     private val handoff: LiveStreamHandoff,
     private val music: MusicController,
-    settings: SettingsRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel(),
     RecordActions {
 
@@ -329,21 +332,9 @@ class LiveTvPlayerViewModel @Inject constructor(
             delay(delayMs)
             stopStream()
             loadGuide(channelId)
-            // The channel list's preview of this channel runs already: it goes on, with sound.
-            val handed = if (force) null else handoff.take(channelId)?.takeIf(handoff::alive)
-            if (handed != null) {
-                source = handed.source
-                val player = handed.playback.player
-                player.volume = 1f
-                player.addListener(listener)
-                player.playWhenReady = true
-                Log.i(TAG, "Took over the preview of $channelId")
-                _state.update { it.copy(player = player, playback = handed.playback, paused = false) }
-                // Ready before the listener came: what it does then happens now.
-                if (player.playbackState == Player.STATE_READY) listener.onPlaybackStateChanged(Player.STATE_READY)
-                return@launch
-            }
             try {
+                val videoOutput = settings.videoOutput.first()
+                if (!force && takePreview(channelId, videoOutput)) return@launch
                 val opened = playback.open(channelId, startMs = 0, audioIndex = null, subtitleIndex = null)
                 source = opened
                 Log.i(
@@ -357,7 +348,9 @@ class LiveTvPlayerViewModel @Inject constructor(
                 )
                 created.player.addListener(listener)
                 created.player.playWhenReady = true
-                _state.update { it.copy(player = created.player, playback = created, paused = false) }
+                _state.update {
+                    it.copy(player = created.player, playback = created, videoOutput = videoOutput, paused = false)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -365,6 +358,23 @@ class LiveTvPlayerViewModel @Inject constructor(
                 _state.update { it.copy(failed = true, loading = false) }
             }
         }
+    }
+
+    /** The channel list's preview of this channel runs already: it goes on, with sound. */
+    private fun takePreview(channelId: UUID, videoOutput: VideoOutput): Boolean {
+        val handed = handoff.take(channelId)?.takeIf(handoff::alive) ?: return false
+        source = handed.source
+        val player = handed.playback.player
+        player.volume = 1f
+        player.addListener(listener)
+        player.playWhenReady = true
+        Log.i(TAG, "Took over the preview of $channelId")
+        _state.update {
+            it.copy(player = player, playback = handed.playback, videoOutput = videoOutput, paused = false)
+        }
+        // Ready before the listener came: what it does then happens now.
+        if (player.playbackState == Player.STATE_READY) listener.onPlaybackStateChanged(Player.STATE_READY)
+        return true
     }
 
     /**

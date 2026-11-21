@@ -115,6 +115,7 @@ import io.github.glacier_jellyfin.androidtv.ui.LocalToaster
 import io.github.glacier_jellyfin.androidtv.ui.UiEvent
 import io.github.glacier_jellyfin.androidtv.ui.ageRatingText
 import io.github.glacier_jellyfin.androidtv.ui.runtimeText
+import io.github.glacier_jellyfin.androidtv.ui.surfaceType
 import io.github.glacier_jellyfin.androidtv.ui.yearText
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -272,6 +273,7 @@ fun TrailerScreen(
                     player = player,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
+                    surfaceType = state.videoOutput.surfaceType(),
                 )
             }
         }

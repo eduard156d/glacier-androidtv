@@ -27,6 +27,7 @@ import io.github.glacier_jellyfin.androidtv.core.data.media.YouTubeTrailer
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackRepository
 import io.github.glacier_jellyfin.androidtv.core.data.settings.PlaybackSettings
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsRepository
+import io.github.glacier_jellyfin.androidtv.core.data.settings.VideoOutput
 import io.github.glacier_jellyfin.androidtv.core.jellyfin.runSuspendCatching
 import io.github.glacier_jellyfin.androidtv.core.log.Log
 import io.github.glacier_jellyfin.androidtv.core.player.GlacierPlayer
@@ -44,6 +45,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -68,6 +70,7 @@ data class TrailerUiState(
     val playWhenReady: Boolean = true,
     /** Local trailers play in Media3; YouTube ones in [YouTubePlayer]. */
     val player: ExoPlayer? = null,
+    val videoOutput: VideoOutput = VideoOutput.SurfaceView,
     /** Seconds until the next trailer starts, on the end screen. */
     val countdown: Int? = null,
     /** Lengths learned while playing (YouTube reports them only then), by trailer index. */
@@ -276,6 +279,7 @@ class TrailerViewModel @Inject constructor(
     private fun openLocal(trailer: LocalTrailer) {
         opening = viewModelScope.launch {
             try {
+                val videoOutput = settings.videoOutput.first()
                 val source = playback.open(trailer.id, startMs = 0, audioIndex = null, subtitleIndex = null)
                 val player = GlacierPlayer.create(
                     context,
@@ -289,7 +293,7 @@ class TrailerViewModel @Inject constructor(
                 player.addListener(listener)
                 applySubtitles(player, subtitlePreference)
                 player.playWhenReady = true
-                _state.update { it.copy(player = player) }
+                _state.update { it.copy(player = player, videoOutput = videoOutput) }
                 startTicker(player)
             } catch (e: CancellationException) {
                 throw e

@@ -14,6 +14,7 @@ class SettingsSerializerTest {
     @Test
     fun `settings survive a round trip`() = runTest {
         val state = SettingsState(
+            videoOutput = VideoOutput.TextureView,
             profiles = mapOf(
                 profileKey("server", "user") to ProfileSettings(
                     playback = PlaybackSettings(
@@ -48,9 +49,12 @@ class SettingsSerializerTest {
 
     @Test
     fun `unknown options fall back to their defaults`() = runTest {
-        val json = """{"profiles":{"s/u":{"playback":{"upNext":"S90","seekBack":"S5"},"future":1}}}"""
-        val playback = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray()))
-            .profiles.getValue("s/u").playback
+        val json = """
+            {"videoOutput":"FutureOutput","profiles":{"s/u":{"playback":{"upNext":"S90","seekBack":"S5"},"future":1}}}
+        """.trimIndent()
+        val state = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray()))
+        val playback = state.profiles.getValue("s/u").playback
+        assertEquals(VideoOutput.SurfaceView, state.videoOutput)
         assertEquals(UpNextChoice.WithCredits, playback.upNext)
         assertEquals(SeekStep.S5, playback.seekBack)
     }
@@ -58,7 +62,9 @@ class SettingsSerializerTest {
     @Test
     fun `settings written before appearance and home existed get their defaults`() = runTest {
         val json = """{"profiles":{"s/u":{"playback":{"seekBack":"S5"}}}}"""
-        val profile = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray())).profiles.getValue("s/u")
+        val state = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray()))
+        val profile = state.profiles.getValue("s/u")
+        assertEquals(VideoOutput.SurfaceView, state.videoOutput)
         assertEquals(AppearanceSettings(), profile.appearance)
         assertEquals(HomeSettings(), profile.home)
     }

@@ -25,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -58,7 +59,13 @@ class PhotoViewModel @Inject constructor(
     val state: StateFlow<PhotoState> = _state.asStateFlow()
 
     /** The current video, playing right here. */
-    private val inline = InlineVideo(context, playback, viewModelScope, onEnded = ::onVideoEnded)
+    private val inline = InlineVideo(
+        context,
+        playback,
+        viewModelScope,
+        onEnded = ::onVideoEnded,
+        readVideoOutput = { settings.videoOutput.first() },
+    )
     val video: StateFlow<InlineVideoState> = inline.state
 
     private val _events = Channel<UiEvent>(Channel.BUFFERED)

@@ -863,6 +863,12 @@
     <string name="settings_up_next_credits">Con créditos</string>
     <string name="settings_trailer_auto">Reproducir tráileres seguidos</string>
     <string name="settings_trailer_auto_sub">Cuando termina un tráiler, el siguiente empieza a los 8 segundos</string>
+    <string name="settings_video_output">Salida de video</string>
+    <string name="settings_video_output_sub">Selección del componente de salida de imagen de Android</string>
+    <string name="settings_video_output_surface">SurfaceView</string>
+    <string name="settings_video_output_texture">TextureView</string>
+    <string name="settings_video_output_surface_sub">Salida predeterminada recomendada.</string>
+    <string name="settings_video_output_texture_sub">Alternativa ante problemas de imagen.</string>
     <string name="settings_match_frame_rate">Ajustar la frecuencia de imagen</string>
     <string name="settings_match_frame_rate_sub">El televisor cambia a la frecuencia de imagen del video mientras se reproduce. Las películas se ven fluidas. La pantalla puede quedarse en negro un momento.</string>
     <string name="settings_match_frame_rate_sub_fire_tv">El televisor cambia a la frecuencia de imagen del video mientras se reproduce. Las películas se ven fluidas. En Fire TV, activa también “Ajustar frecuencia de fotogramas original” en Pantalla y sonidos › Pantalla.</string>

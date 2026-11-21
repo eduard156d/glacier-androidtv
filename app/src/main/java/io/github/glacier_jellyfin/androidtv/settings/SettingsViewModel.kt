@@ -34,6 +34,7 @@ import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsRepositor
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsSync
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SubtitleStyle
 import io.github.glacier_jellyfin.androidtv.core.data.settings.UiLanguage
+import io.github.glacier_jellyfin.androidtv.core.data.settings.VideoOutput
 import io.github.glacier_jellyfin.androidtv.core.log.Log
 import io.github.glacier_jellyfin.androidtv.core.player.FfmpegAudio
 import io.github.glacier_jellyfin.androidtv.core.player.PlaybackSetup
@@ -84,6 +85,8 @@ enum class LanguageTarget { Audio, Subtitles, Ui }
 data class SettingsUiState(
     val category: SettingsCategory = SettingsCategory.Appearance,
     val profile: ProfileSettings = ProfileSettings(),
+    /** The output shared by all profiles on this TV, null until the saved choice is read. */
+    val videoOutput: VideoOutput? = null,
     /** Null while loading or when the server cannot be reached ([serverFailed]). */
     val server: ServerPreferences? = null,
     val serverFailed: Boolean = false,
@@ -183,6 +186,9 @@ class SettingsViewModel @Inject constructor(
     init {
         viewModelScope.launch { settings.settings.collect { profile -> _state.update { it.copy(profile = profile) } } }
         viewModelScope.launch {
+            settings.videoOutput.collect { output -> _state.update { it.copy(videoOutput = output) } }
+        }
+        viewModelScope.launch {
             serverPreferences.preferences.collect { server ->
                 if (server != null) {
                     _state.update {
@@ -252,6 +258,10 @@ class SettingsViewModel @Inject constructor(
 
     fun updatePlayback(transform: (PlaybackSettings) -> PlaybackSettings) {
         viewModelScope.launch { settings.updatePlayback(transform) }
+    }
+
+    fun setVideoOutput(output: VideoOutput) {
+        viewModelScope.launch { settings.setVideoOutput(output) }
     }
 
     fun updateAppearance(transform: (AppearanceSettings) -> AppearanceSettings) {

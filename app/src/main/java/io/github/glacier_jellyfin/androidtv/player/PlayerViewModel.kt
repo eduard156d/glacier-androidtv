@@ -49,6 +49,7 @@ import io.github.glacier_jellyfin.androidtv.core.data.settings.MaxBitrate
 import io.github.glacier_jellyfin.androidtv.core.data.settings.ServerPreferencesRepository
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsRepository
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SubtitleStyle
+import io.github.glacier_jellyfin.androidtv.core.data.settings.VideoOutput
 import io.github.glacier_jellyfin.androidtv.core.data.settings.rememberedTracks
 import io.github.glacier_jellyfin.androidtv.core.data.settings.showKey
 import io.github.glacier_jellyfin.androidtv.core.data.settings.toKey
@@ -85,6 +86,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -96,6 +98,8 @@ data class PlayerUiState(
     val player: ExoPlayer? = null,
     /** The player with its ASS renderer, for the subtitle view. */
     val playback: GlacierPlayback? = null,
+    /** Read before creating this player and held fixed until a new playback is opened. */
+    val videoOutput: VideoOutput = VideoOutput.SurfaceView,
     /** Until the first frame can be shown. */
     val loading: Boolean = true,
     val failed: Boolean = false,
@@ -567,6 +571,7 @@ class PlayerViewModel @Inject constructor(
                 )
             }
             try {
+                val videoOutput = settings.videoOutput.first()
                 val item = _state.value.details ?: details.details(itemId).let { loaded ->
                     // The file the detail page showed, else the one picked for the title or show.
                     if (versionId == null) versionId = versions.choose(loaded)?.id
@@ -610,6 +615,7 @@ class PlayerViewModel @Inject constructor(
                     it.copy(
                         player = player,
                         playback = playback,
+                        videoOutput = videoOutput,
                         method = opened.method,
                         audioTracks = opened.audioTracks,
                         subtitles = opened.subtitles,

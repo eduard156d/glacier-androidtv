@@ -838,6 +838,12 @@
     <string name="settings_up_next_credits">Mit Abspann</string>
     <string name="settings_trailer_auto">Trailer nacheinander abspielen</string>
     <string name="settings_trailer_auto_sub">Nach dem Ende eines Trailers startet der nächste nach 8 Sekunden</string>
+    <string name="settings_video_output">Videoausgabe</string>
+    <string name="settings_video_output_sub">Auswahl der Android-Bildausgabe-Komponente</string>
+    <string name="settings_video_output_surface">SurfaceView</string>
+    <string name="settings_video_output_texture">TextureView</string>
+    <string name="settings_video_output_surface_sub">Empfohlene Standardausgabe.</string>
+    <string name="settings_video_output_texture_sub">Alternative bei Darstellungsproblemen.</string>
     <string name="settings_match_frame_rate">Bildwiederholrate anpassen</string>
     <string name="settings_match_frame_rate_sub">Der Fernseher wechselt während der Wiedergabe auf die Bildrate des Videos. Filme laufen so ohne Ruckeln. Der Bildschirm kann dabei kurz schwarz werden.</string>
     <string name="settings_match_frame_rate_sub_fire_tv">Der Fernseher wechselt während der Wiedergabe auf die Bildrate des Videos. Filme laufen so ohne Ruckeln. Schalte auf dem Fire TV zusätzlich „An Originalbildrate anpassen“ unter Töne und Bildschirm › Bildschirm ein.</string>

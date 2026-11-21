@@ -96,6 +96,7 @@ import io.github.glacier_jellyfin.androidtv.core.data.settings.SubtitleWeight
 import io.github.glacier_jellyfin.androidtv.core.data.settings.UiLanguage
 import io.github.glacier_jellyfin.androidtv.core.data.settings.UpNextChoice
 import io.github.glacier_jellyfin.androidtv.core.data.settings.UpNextCollapse
+import io.github.glacier_jellyfin.androidtv.core.data.settings.VideoOutput
 import io.github.glacier_jellyfin.androidtv.core.data.settings.arranged
 import io.github.glacier_jellyfin.androidtv.core.data.settings.withMoved
 import io.github.glacier_jellyfin.androidtv.core.data.settings.withShown
@@ -164,6 +165,7 @@ private sealed interface SettingRow {
         override val enabled: Boolean = true,
         val dots: List<Color>? = null,
         val fonts: List<FontFamily>? = null,
+        val descriptionBelow: String? = null,
     ) : SettingRow
 
     /** Options switched on and off each, any number of them. */
@@ -696,6 +698,9 @@ private fun SettingCard(row: SettingRow) {
                     dots = row.dots,
                     fonts = row.fonts,
                 )
+                row.descriptionBelow?.let { description ->
+                    Text(description, style = GlacierText.body(17), color = GlacierColors.Mist)
+                }
             },
         )
 
@@ -1196,6 +1201,22 @@ private fun playbackRows(state: SettingsUiState, viewModel: SettingsViewModel): 
                     ),
                     playback.matchFrameRate,
                     onToggle = { viewModel.updatePlayback { it.copy(matchFrameRate = !it.matchFrameRate) } },
+                ),
+                SettingRow.Choice(
+                    stringResource(R.string.settings_video_output),
+                    stringResource(R.string.settings_video_output_sub),
+                    listOf(
+                        stringResource(R.string.settings_video_output_surface),
+                        stringResource(R.string.settings_video_output_texture),
+                    ),
+                    state.videoOutput?.ordinal ?: -1,
+                    onSelect = { i -> viewModel.setVideoOutput(VideoOutput.entries[i]) },
+                    enabled = state.videoOutput != null,
+                    descriptionBelow = when (state.videoOutput) {
+                        VideoOutput.SurfaceView -> stringResource(R.string.settings_video_output_surface_sub)
+                        VideoOutput.TextureView -> stringResource(R.string.settings_video_output_texture_sub)
+                        null -> null
+                    },
                 ),
             ) + listOfNotNull(
                 // Only where the decoder takes profile 8 but not 7; otherwise there is nothing to choose.

@@ -82,6 +82,7 @@ import io.github.glacier_jellyfin.androidtv.ui.Artwork
 import io.github.glacier_jellyfin.androidtv.ui.CollectEvents
 import io.github.glacier_jellyfin.androidtv.ui.PageEdge
 import io.github.glacier_jellyfin.androidtv.ui.UiEvent
+import io.github.glacier_jellyfin.androidtv.ui.surfaceType
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
@@ -215,6 +216,7 @@ fun PhotoScreen(
                                 player = player,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Fit,
+                                surfaceType = video.videoOutput.surfaceType(),
                             )
                         }
                     }

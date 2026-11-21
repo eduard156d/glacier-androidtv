@@ -64,6 +64,7 @@ import io.github.glacier_jellyfin.androidtv.core.designsystem.blockKeysWhile
 import io.github.glacier_jellyfin.androidtv.detail.TrackKind
 import io.github.glacier_jellyfin.androidtv.ui.Artwork
 import io.github.glacier_jellyfin.androidtv.ui.CollectEvents
+import io.github.glacier_jellyfin.androidtv.ui.surfaceType
 import kotlinx.coroutines.delay
 
 /** OSD hides after this long without input while playing (agreed: 3 s). */
@@ -307,7 +308,12 @@ fun PlayerScreen(onBack: () -> Unit, viewModel: PlayerViewModel = hiltViewModel(
     ) {
         state.playback?.let { playback ->
             val player = playback.player
-            ContentFrame(player = player, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            ContentFrame(
+                player = player,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+                surfaceType = state.videoOutput.surfaceType(),
+            )
             val lift = when {
                 state.chaptersOpen -> SubtitleLift.Chapters
                 osdVisible -> SubtitleLift.Osd

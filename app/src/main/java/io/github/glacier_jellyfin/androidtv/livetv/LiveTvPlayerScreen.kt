@@ -97,6 +97,7 @@ import io.github.glacier_jellyfin.androidtv.player.OsdSecondary
 import io.github.glacier_jellyfin.androidtv.player.osdScrim
 import io.github.glacier_jellyfin.androidtv.ui.CollectEvents
 import io.github.glacier_jellyfin.androidtv.ui.UiEvent
+import io.github.glacier_jellyfin.androidtv.ui.surfaceType
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -481,7 +482,12 @@ fun LiveTvPlayerScreen(
             .focusable(),
     ) {
         state.player?.let { player ->
-            ContentFrame(player = player, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            ContentFrame(
+                player = player,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+                surfaceType = state.videoOutput.surfaceType(),
+            )
         }
 
         if (state.loading && !state.failed) {

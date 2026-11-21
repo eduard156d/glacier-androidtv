@@ -42,6 +42,11 @@ build without them still works, just without the extra codecs.
 - Stored on the Jellyfin server, per user: preferred audio and subtitle
   language, subtitle mode, "play default audio track", "remember audio/subtitle
   selection".
+- Stored on the device, shared by all profiles: the video output component
+  (SurfaceView by default, or TextureView for display compatibility). It is
+  read when opening the main player, full-screen live TV, a local trailer or
+  a video in the photo viewer, and stays fixed for that playback. Profile
+  settings copied through the Jellyfin server do not include it.
 - Stored on the device, per profile: everything else, including appearance,
   home screen, playback and parental-control settings, and all PINs. There is
   no default PIN; it is set when a PIN feature is first enabled.

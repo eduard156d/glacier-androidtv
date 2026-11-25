@@ -763,7 +763,7 @@
     <string name="settings_photo_android">Android Geocoder</string>
     <string name="settings_photo_android_sub">Uses your TV’s geocoder, which may look up coordinates online.</string>
     <string name="settings_photo_nominatim">OpenStreetMap Nominatim</string>
-    <string name="settings_photo_nominatim_sub">Public service for individually opened photos. Only use with coordinates you can share publicly.</string>
+    <string name="settings_photo_nominatim_sub">Looks up where individually opened photos were taken using the public OpenStreetMap service.</string>
     <string name="settings_photo_bigdatacloud">BigDataCloud</string>
     <string name="settings_photo_bigdatacloud_sub">Looks up photo coordinates online using an API key from your BigDataCloud account.</string>
     <string name="settings_photo_bigdatacloud_key">API key</string>

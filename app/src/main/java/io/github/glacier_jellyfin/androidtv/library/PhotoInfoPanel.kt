@@ -20,6 +20,7 @@ import coil3.compose.AsyncImage
 import io.github.glacier_jellyfin.androidtv.R
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderMedia
 import io.github.glacier_jellyfin.androidtv.core.data.media.PhotoDetails
+import io.github.glacier_jellyfin.androidtv.core.data.media.PhotoLocation
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierColors
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierText
 import io.github.glacier_jellyfin.androidtv.core.designsystem.SpinningDiamond
@@ -33,14 +34,14 @@ import kotlin.math.roundToLong
 @Composable
 internal fun PhotoInfoPanel(
     photo: FolderMedia.Photo,
-    date: String?,
+    place: PhotoPlace?,
     loadDetails: suspend (UUID) -> PhotoDetails,
     onDismiss: () -> Unit,
 ) {
     val result by produceState<Result<PhotoDetails>?>(null, photo.id) {
         value = runSuspendCatching { loadDetails(photo.id) }
     }
-    InfoPanelFrame(tabs = listOf(stringResource(R.string.photo_info)), onDismiss = onDismiss) {
+    InfoPanelFrame(tabs = listOf(stringResource(R.string.photo_info)), onDismiss = onDismiss, scrollContent = true) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(52.dp)) {
             AsyncImage(
                 model = photo.photo.thumbUrl,
@@ -56,18 +57,22 @@ internal fun PhotoInfoPanel(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                date?.let { FactRow(stringResource(R.string.photo_info_date), it, labelWidth = 180) }
                 val details = result
                 when {
                     details == null -> SpinningDiamond(48)
 
-                    details.isFailure -> Text(
-                        stringResource(R.string.photo_info_error),
-                        style = GlacierText.body(20),
-                        color = GlacierColors.Mist,
-                    )
+                    details.isFailure -> {
+                        longTakenText(photo.date)?.let {
+                            FactRow(stringResource(R.string.photo_info_date), it, labelWidth = 180)
+                        }
+                        Text(
+                            stringResource(R.string.photo_info_error),
+                            style = GlacierText.body(20),
+                            color = GlacierColors.Mist,
+                        )
+                    }
 
-                    else -> PhotoInfoFacts(details.getOrThrow())
+                    else -> PhotoInfoFacts(details.getOrThrow(), place)
                 }
             }
         }
@@ -75,7 +80,26 @@ internal fun PhotoInfoPanel(
 }
 
 @Composable
-private fun PhotoInfoFacts(details: PhotoDetails) {
+private fun PhotoInfoFacts(details: PhotoDetails, place: PhotoPlace?) {
+    val unavailable = stringResource(R.string.photo_info_unavailable)
+    val takenAt = longTakenText(details.takenAt)
+    val createdAt = if (takenAt == null) longTakenText(details.createdAt) else null
+    FactRow(stringResource(R.string.photo_info_taken_date), takenAt ?: unavailable, labelWidth = 180)
+    createdAt?.let { FactRow(stringResource(R.string.photo_info_created_date), it, labelWidth = 180) }
+    FactRow(
+        stringResource(R.string.photo_info_location),
+        photoLocationText(details.location, place) ?: unavailable,
+        labelWidth = 180,
+        maxValueLines = Int.MAX_VALUE,
+    )
+    if (details.location.names.isEmpty() && place?.fromOpenStreetMap == true) OpenStreetMapAttribution()
+    FactRow(
+        stringResource(R.string.photo_info_path),
+        details.path ?: unavailable,
+        labelWidth = 180,
+        maxValueLines = Int.MAX_VALUE,
+    )
+
     val width = details.width ?: 0
     val height = details.height ?: 0
     val dimensions = if (width > 0 && height > 0) stringResource(R.string.photo_info_pixels, width, height) else null
@@ -95,6 +119,28 @@ private fun PhotoInfoFacts(details: PhotoDetails) {
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+@Composable
+private fun photoLocationText(location: PhotoLocation, place: PhotoPlace?): String? {
+    val coordinates = location.coordinates?.let { point ->
+        val numbers = NumberFormat.getNumberInstance(LocalLocale.current.platformLocale).apply {
+            maximumFractionDigits = 6
+            isGroupingUsed = false
+        }
+        "${numbers.format(point.latitude)}° · ${numbers.format(point.longitude)}°"
+    }
+    val names = location.names.ifEmpty { listOfNotNull(place?.name) }
+    return (names + listOfNotNull(coordinates)).joinToString(" · ").takeIf(String::isNotBlank)
+}
+
+@Composable
+internal fun OpenStreetMapAttribution() {
+    Text(
+        stringResource(R.string.photo_openstreetmap_attribution),
+        style = GlacierText.body(15),
+        color = GlacierColors.Mist,
+    )
 }
 
 @Composable

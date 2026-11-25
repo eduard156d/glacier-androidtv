@@ -73,9 +73,9 @@ enum class SettingsCategory(val label: Int) {
     Appearance(R.string.settings_cat_appearance),
     Home(R.string.settings_cat_home),
     Playback(R.string.settings_cat_playback),
-    Photos(R.string.settings_cat_photos),
     Audio(R.string.settings_cat_audio),
     Subtitles(R.string.settings_cat_subtitles),
+    Photos(R.string.settings_cat_photos),
     Account(R.string.settings_cat_account),
     System(R.string.settings_cat_system),
 }

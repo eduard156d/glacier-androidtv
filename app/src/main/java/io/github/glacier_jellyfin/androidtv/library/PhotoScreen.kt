@@ -96,8 +96,8 @@ import kotlinx.coroutines.delay
 /**
  * A folder's photos and videos full screen, in the folder page's order. A video plays right here.
  * Left and right browse. OK on a photo opens its controls, including the slideshow; OK on a video opens
- * the full player where it is, and Back from there comes back here. The photo's location or the video's name,
- * the date and the position show for a moment after each change. A line along the bottom edge shows how far a
+ * the full player where it is, and Back from there comes back here. The photo's location, the date and the
+ * position show for a moment after each change. A line along the bottom edge shows how far a
  * video has played or a photo's slideshow time.
  */
 @OptIn(UnstableApi::class) // ContentFrame
@@ -120,10 +120,8 @@ fun PhotoScreen(
     val infoFocus = remember { FocusRequester() }
     val current = state.current
     val photo = current as? FolderMedia.Photo
-    val caption = if (photo != null) {
-        photo.photo.location.names.joinToString(" · ").takeIf(String::isNotBlank) ?: state.photoPlace?.name
-    } else {
-        current?.name
+    val caption = photo?.let {
+        it.photo.location.names.joinToString(" · ").takeIf(String::isNotBlank) ?: state.photoPlace?.name
     }
     val captionDate = longTakenText(state.captionDate)
     val deleteTarget = state.deleteTarget

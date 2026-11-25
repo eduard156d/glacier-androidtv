@@ -191,7 +191,7 @@ internal fun InfoPanelFrame(
                 .focusRequester(focus)
                 .onKeyEvent { event ->
                     when (event.key) {
-                        Key.DirectionCenter, Key.Enter -> {
+                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                             if (event.type == KeyEventType.KeyUp) onDismiss()
                             true
                         }

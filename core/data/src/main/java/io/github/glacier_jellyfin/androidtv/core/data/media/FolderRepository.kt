@@ -42,6 +42,19 @@ data class MediaPhoto(
     val name: String,
     val thumbUrl: String,
     val fullUrl: String,
+    val canDelete: Boolean = false,
+)
+
+data class PhotoDetails(
+    val fileName: String?,
+    val width: Int?,
+    val height: Int?,
+    val description: String?,
+    val camera: String?,
+    val focalLength: Double?,
+    val aperture: Double?,
+    val exposureTime: Double?,
+    val iso: Int?,
 )
 
 /** A video or photo of a folder, with the time it was taken, else the file's date. */
@@ -122,6 +135,24 @@ class FolderRepository @Inject constructor(
         media(session, children(session, folderId)).sortedFor(settings.settings.value.folders)
     }
 
+    suspend fun photoDetails(id: UUID): PhotoDetails = withContext(Dispatchers.IO) {
+        val session = checkNotNull(sessions.session.value) { "No profile is signed in" }
+        val dto = session.api.libraryApi.getItem(itemId = id, userId = session.userId).content
+        check(dto.id == id && dto.isPhoto) { "The item is not a photo" }
+        PhotoDetails(
+            fileName = dto.path?.substringAfterLast('/')?.substringAfterLast('\\')?.takeIf(String::isNotBlank),
+            width = dto.width,
+            height = dto.height,
+            description = plainText(dto.overview),
+            camera = listOfNotNull(dto.cameraMake, dto.cameraModel)
+                .filter(String::isNotBlank).distinct().joinToString(" ").takeIf(String::isNotBlank),
+            focalLength = dto.focalLength,
+            aperture = dto.aperture,
+            exposureTime = dto.exposureTime,
+            iso = dto.isoSpeedRating,
+        )
+    }
+
     /** The videos of [folderId] in the order the folder page lists them, for playing one after another. */
     suspend fun videos(folderId: UUID): List<MediaItem> =
         media(folderId).filterIsInstance<FolderMedia.Video>().map { it.item }
@@ -175,7 +206,7 @@ class FolderRepository @Inject constructor(
         userId = session.userId,
         parentId = parentId,
         sortBy = listOf(ItemSortBy.SORT_NAME),
-        fields = listOf(ItemFields.DATE_CREATED),
+        fields = listOf(ItemFields.DATE_CREATED, ItemFields.CAN_DELETE),
         enableUserData = true,
     ).content.items
 
@@ -195,6 +226,9 @@ class FolderRepository @Inject constructor(
 
     private val Session.userId: UUID get() = UUID.fromString(user.userId)
 }
+
+internal val BaseItemDto.isDeletablePhoto: Boolean
+    get() = canDelete == true && type == BaseItemKind.PHOTO && isFolder != true
 
 /**
  * [settings]' order: by date, undated last and same dates by name, or by name. [FolderSettings.descending]

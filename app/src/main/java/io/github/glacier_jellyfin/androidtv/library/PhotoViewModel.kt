@@ -7,9 +7,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.github.glacier_jellyfin.androidtv.R
+import io.github.glacier_jellyfin.androidtv.core.data.media.DetailRepository
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderContent
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderMedia
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderRepository
+import io.github.glacier_jellyfin.androidtv.core.data.media.MediaPhoto
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackRepository
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsRepository
 import io.github.glacier_jellyfin.androidtv.core.jellyfin.runSuspendCatching
@@ -40,8 +43,22 @@ data class PhotoState(
     val forward: Boolean = true,
     /** How long the slideshow shows each photo (Settings). */
     val slideMs: Long = 5_000,
+    val deleteTarget: MediaPhoto? = null,
+    val deleting: Boolean = false,
 ) {
     val current: FolderMedia? get() = media.getOrNull(index)
+
+    /** Keep the next item selected, or go back one when the deleted photo was last. */
+    internal fun afterPhotoDeleted(id: UUID): PhotoState {
+        val remaining = media.filterNot { it.id == id }
+        return copy(
+            media = remaining,
+            index = index.coerceAtMost(remaining.lastIndex.coerceAtLeast(0)),
+            forward = index < remaining.size,
+            deleteTarget = null,
+            deleting = false,
+        )
+    }
 }
 
 @HiltViewModel
@@ -49,6 +66,7 @@ class PhotoViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     @param:ApplicationContext context: Context,
     private val repository: FolderRepository,
+    private val details: DetailRepository,
     private val settings: SettingsRepository,
     playback: PlaybackRepository,
 ) : ViewModel() {
@@ -92,38 +110,72 @@ class PhotoViewModel @Inject constructor(
         }
     }
 
-    /** The next photo or video; during a slideshow a photo's time starts anew. */
-    fun next() {
-        if (step(1)) showCurrent()
+    /** Browse by one item; during a slideshow the new photo's time starts anew. */
+    fun browseBy(offset: Int) {
+        if (step(offset)) showCurrent()
     }
 
-    fun previous() {
-        if (step(-1)) showCurrent()
-    }
-
-    /** OK: on a video the full player takes over where it is; on a photo the slideshow starts or stops. */
-    fun select() {
-        val current = _state.value.current ?: return
-        if (current is FolderMedia.Video) {
-            val position = inline.positionMs
-            handedOver = current.id to position
-            inline.release()
-            viewModelScope.launch {
-                _events.send(
-                    UiEvent.Navigate(PlayerRoute(current.id.toString(), startMs = position)),
-                )
-            }
-        } else if (_state.value.slideshow) {
-            stopSlideshow()
-        } else {
-            _state.update { it.copy(slideshow = true) }
-            showCurrent()
+    /** The full player takes over an inline video at its current position. */
+    fun openVideoPlayer() {
+        val current = _state.value.current as? FolderMedia.Video ?: return
+        val position = inline.positionMs
+        handedOver = current.id to position
+        inline.release()
+        viewModelScope.launch {
+            _events.send(UiEvent.Navigate(PlayerRoute(current.id.toString(), startMs = position)))
         }
     }
 
     /** Play and pause: the video here, or the slideshow on a photo. */
     fun playPause() {
-        if (_state.value.current is FolderMedia.Video) inline.togglePlay() else select()
+        val state = _state.value
+        if (state.deleteTarget != null) return
+        when (state.current) {
+            is FolderMedia.Video -> inline.togglePlay()
+
+            is FolderMedia.Photo -> if (state.slideshow) {
+                stopSlideshow()
+            } else {
+                _state.update { it.copy(slideshow = true) }
+                showCurrent()
+            }
+
+            null -> Unit
+        }
+    }
+
+    suspend fun photoDetails(id: UUID) = repository.photoDetails(id)
+
+    fun openDelete() {
+        val state = _state.value
+        val photo = (state.current as? FolderMedia.Photo)?.photo ?: return
+        if (!photo.canDelete || state.deleteTarget != null) return
+        stopSlideshow()
+        _state.update { it.copy(deleteTarget = photo) }
+    }
+
+    fun closeDelete() {
+        _state.update { if (it.deleting) it else it.copy(deleteTarget = null) }
+    }
+
+    fun deletePhoto() {
+        val state = _state.value
+        val photo = state.deleteTarget ?: return
+        if (state.deleting || state.current?.id != photo.id) return
+        _state.update { it.copy(deleting = true) }
+        viewModelScope.launch {
+            runSuspendCatching { details.deletePhoto(photo.id) }
+                .onSuccess {
+                    _state.update { it.afterPhotoDeleted(photo.id) }
+                    showCurrent()
+                    _events.send(UiEvent.Toast(R.string.photo_deleted, listOf(photo.name)))
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "Deleting the photo failed", error)
+                    _state.update { it.copy(deleteTarget = null, deleting = false) }
+                    _events.send(UiEvent.Toast(R.string.photo_delete_failed))
+                }
+        }
     }
 
     /** Back on screen from the full player: the slideshow goes on with the next one, or the video plays on here. */
@@ -146,7 +198,7 @@ class PhotoViewModel @Inject constructor(
     private fun step(by: Int): Boolean {
         val current = _state.value
         val target = current.index + by
-        if (target !in current.media.indices) return false
+        if (current.deleteTarget != null || target !in current.media.indices) return false
         _state.update { it.copy(index = target, forward = by > 0) }
         return true
     }
@@ -184,7 +236,7 @@ class PhotoViewModel @Inject constructor(
         if (_state.value.slideshow) advance()
     }
 
-    private fun stopSlideshow() {
+    fun stopSlideshow() {
         slideshow?.cancel()
         slideshow = null
         _state.update { it.copy(slideshow = false) }

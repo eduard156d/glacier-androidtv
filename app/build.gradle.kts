@@ -66,6 +66,7 @@ android {
         targetSdk = 37
         versionName = glacierVersion
         versionCode = versionCodeOf(glacierVersion)
+        buildConfigField("boolean", "LOCAL_TEST_BUILD", "false")
         // Empty: the GitHub releases API (core/updater ReleaseFeed.GITHUB).
         buildConfigField("String", "UPDATE_FEED", "\"\"")
         // The store that delivers the updates ("amazon", "play"); empty for the GitHub build and its self-updater.
@@ -87,7 +88,13 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
+            applicationIdSuffix = ".surfacetest"
+            isDebuggable = false
+            buildConfigField("boolean", "LOCAL_TEST_BUILD", "true")
+            ndk.abiFilters += "armeabi-v7a"
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Local test releases for the updater, see docs/RELEASING.md.
             providers.gradleProperty("glacier.updateFeed").orNull?.let { buildConfigField("String", "UPDATE_FEED", "\"$it\"") }
             // Tries out a store build's behaviour ("What's new", no updater) on a debug build.

@@ -1,5 +1,36 @@
 # Releasing
 
+## Local Sony test build
+
+`sony-deploy` includes `media-functions` and uses `0.10.1` as the local APK version.
+
+For a Windows build, point `JAVA_HOME` at JDK 21 and `ANDROID_HOME` at
+the Android SDK with platform 37.0, build-tools 36.0.0 and platform-tools.
+Run from the project directory:
+
+```powershell
+.\gradlew.bat :app:assembleDebug '-Pglacier.version=0.10.1'
+```
+
+The `debug` variant produces the compact ARMv7a APK **Glacier**,
+application ID `io.github.glacier_jellyfin.androidtv.surfacetest`.
+Use the same local Android debug signing key as the installed APK when
+building updates.
+
+Connect through the already authorized ADB connection. On the local test
+machine the TV's ADB server uses port 15038. Substitute the TV's address:
+
+```powershell
+$adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
+$sony = 'TV_IP:5555'
+& $adb -P 15038 connect $sony
+& $adb -P 15038 -s $sony install -r --no-incremental .\app\build\outputs\apk\debug\app-debug.apk
+```
+
+`-r` updates the local Glacier build under the same application ID and preserves the
+Jellyfin sign-in. Play the rotated reference clips to verify automatic rotation
+in the main player and photo viewer. Check pause, resume and seeking.
+
 ## Versions
 
 Glacier uses `MAJOR.MINOR.PATCH` for stable releases and

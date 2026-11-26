@@ -86,6 +86,7 @@ class DetailRepository @Inject constructor(
             studios = dto.studios.orEmpty().mapNotNull { it.name?.takeIf(String::isNotBlank) },
             versions = versions(session, dto),
             canDelete = dto.isDeletableVideo(),
+            backdropUrls = if (dto.type == BaseItemKind.MOVIE) mapper.movieBackdrops(dto) else emptyList(),
         )
     }
 

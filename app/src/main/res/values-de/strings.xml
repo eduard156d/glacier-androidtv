@@ -755,7 +755,7 @@
     <string name="settings_photo_android">Android-Geocoder</string>
     <string name="settings_photo_android_sub">Der Geocoder des Fernsehers kann Koordinaten online nachschlagen.</string>
     <string name="settings_photo_nominatim">OpenStreetMap Nominatim</string>
-    <string name="settings_photo_nominatim_sub">Öffentlicher Dienst für einzeln geöffnete Fotos. Nur für Koordinaten, die du öffentlich teilen darfst.</string>
+    <string name="settings_photo_nominatim_sub">Sucht den Aufnahmeort einzeln geöffneter Fotos im öffentlichen OpenStreetMap-Dienst.</string>
     <string name="settings_photo_bigdatacloud">BigDataCloud</string>
     <string name="settings_photo_bigdatacloud_sub">Schlägt Fotokoordinaten mit einem API-Schlüssel aus deinem BigDataCloud-Konto online nach.</string>
     <string name="settings_photo_bigdatacloud_key">API-Schlüssel</string>

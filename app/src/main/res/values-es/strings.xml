@@ -776,7 +776,7 @@
     <string name="settings_photo_android">Geocodificador de Android</string>
     <string name="settings_photo_android_sub">El geocodificador del televisor puede consultar las coordenadas en línea.</string>
     <string name="settings_photo_nominatim">OpenStreetMap Nominatim</string>
-    <string name="settings_photo_nominatim_sub">Servicio público para fotos abiertas individualmente. Úsalo solo con coordenadas que puedas compartir en público.</string>
+    <string name="settings_photo_nominatim_sub">Busca el lugar de captura de las fotos abiertas individualmente en el servicio público de OpenStreetMap.</string>
     <string name="settings_photo_bigdatacloud">BigDataCloud</string>
     <string name="settings_photo_bigdatacloud_sub">Consulta las coordenadas de las fotos en línea con una clave de API de tu cuenta de BigDataCloud.</string>
     <string name="settings_photo_bigdatacloud_key">Clave de API</string>

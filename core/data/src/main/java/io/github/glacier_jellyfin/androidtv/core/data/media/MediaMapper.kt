@@ -290,6 +290,7 @@ internal class MediaMapper(private val api: ApiClient) {
             fullUrl = image(dto.id, ImageType.PRIMARY, tag, ImageWidth.BACKDROP),
             blurHash = dto.imageBlurHashes?.get(ImageType.PRIMARY)?.get(tag),
             aspectRatio = photoAspectRatio(dto),
+            location = dto.photoLocation,
         )
     }
 

@@ -1149,6 +1149,7 @@ internal fun FactRow(
     value: String,
     labelWidth: Int = 150,
     mono: Boolean = false,
+    maxValueLines: Int = 1,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -1162,7 +1163,7 @@ internal fun FactRow(
             value,
             style = if (mono) GlacierText.mono(16) else GlacierText.body(17, FontWeight.Medium),
             color = if (mono) OsdSecondary else GlacierColors.Ice,
-            maxLines = 1,
+            maxLines = maxValueLines,
             overflow = TextOverflow.Ellipsis,
         )
     }

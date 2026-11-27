@@ -52,6 +52,7 @@ data class MediaPhoto(
     val fullUrl: String,
     val blurHash: String? = null,
     val aspectRatio: Float? = null,
+    val location: PhotoLocation = PhotoLocation(),
 )
 
 /** A video or photo of a folder, with the time it was taken, else the file's date. */
@@ -263,6 +264,7 @@ class FolderRepository @Inject constructor(
             ItemFields.DATE_CREATED,
             ItemFields.PRIMARY_IMAGE_ASPECT_RATIO,
             ItemFields.CAN_DELETE.takeIf { withDelete },
+            ItemFields.PRODUCTION_LOCATIONS.takeIf { withDelete },
         ),
         enableUserData = true,
     ).content.items

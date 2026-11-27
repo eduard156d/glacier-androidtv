@@ -45,9 +45,13 @@ class PhotoDetailsTest {
     ) = block(BaseItemDto(id = UUID(0, 1), type = BaseItemKind.PHOTO, name = name, path = path))
 
     @Test
-    fun `the file name is the last part of the path`() {
-        assertEquals("a.jpg", photoDetails(dto(path = "/media/photos/2024/a.jpg")).fileName)
-        assertEquals("b.jpg", photoDetails(dto(path = "D:\\photos\\b.jpg")).fileName)
+    fun `the file name and the complete server path are available`() {
+        val linux = photoDetails(dto(path = "/media/photos/2024/a.jpg"))
+        val windows = photoDetails(dto(path = "D:\\photos\\b.jpg"))
+        assertEquals("a.jpg", linux.fileName)
+        assertEquals("/media/photos/2024/a.jpg", linux.path)
+        assertEquals("b.jpg", windows.fileName)
+        assertEquals("D:\\photos\\b.jpg", windows.path)
     }
 
     @Test
@@ -56,6 +60,7 @@ class PhotoDetailsTest {
         assertEquals("Sunset", details.fileName)
         assertNull(details.folderName)
         assertNull(details.format)
+        assertNull(details.path)
     }
 
     @Test
@@ -82,6 +87,7 @@ class PhotoDetailsTest {
                     latitude = 59.9139,
                     longitude = 10.7522,
                     altitude = 12.0,
+                    productionLocations = listOf("Oslo", "", "Norway"),
                     software = " Photos 9 ",
                     imageOrientation = ImageOrientation.RIGHT_TOP,
                 )
@@ -90,6 +96,7 @@ class PhotoDetailsTest {
         assertEquals(59.9139, details.latitude!!, 0.0)
         assertEquals(10.7522, details.longitude!!, 0.0)
         assertEquals(12.0, details.altitude!!, 0.0)
+        assertEquals("Oslo · Norway", details.location.name)
         assertEquals("Photos 9", details.software)
         assertEquals(90, details.rotation)
         assertNull(photoDetails(dto { it.copy(imageOrientation = ImageOrientation.TOP_LEFT) }).rotation)

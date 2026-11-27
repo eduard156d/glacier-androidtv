@@ -70,12 +70,13 @@ data class FolderRoute(
     val focus: String? = null,
 )
 
-/** The photos of a home video folder ([folderId]) full screen, starting with [photoId]; [slideshow] starts it running. */
+/** The media in [folderId] full screen, beginning with [photoId] at [startMs] for a video. */
 @Serializable
 data class PhotoRoute(
     val folderId: String,
     val photoId: String,
     val slideshow: Boolean = false,
+    val startMs: Long? = null,
 )
 
 /**

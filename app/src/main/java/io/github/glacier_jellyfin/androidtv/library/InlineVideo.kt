@@ -38,6 +38,7 @@ data class InlineVideoState(
     val source: PlaybackSource? = null,
     val playback: GlacierPlayback? = null,
     val decoders: DecoderInfo = DecoderInfo(),
+    val playing: Boolean = false,
 )
 
 /**
@@ -62,6 +63,11 @@ class InlineVideo(
     private var ticker: Job? = null
 
     private val listener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            val playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+            _state.update { if (it.player === player) it.copy(playing = playing) else it }
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) onEnded()
         }
@@ -113,7 +119,7 @@ class InlineVideo(
                 player.addListener(listener)
                 player.addAnalyticsListener(decoders)
                 player.playWhenReady = true
-                _state.update { it.copy(player = player, playback = created, progress = 0f) }
+                _state.update { it.copy(player = player, playback = created, progress = 0f, playing = true) }
                 ticker = scope.launch {
                     while (isActive) {
                         val duration = player.duration.takeIf { it > 0 }
@@ -137,7 +143,13 @@ class InlineVideo(
     }
 
     fun togglePlay() {
-        _state.value.player?.let { it.playWhenReady = !it.playWhenReady }
+        val player = _state.value.player ?: return
+        if (player.playbackState == Player.STATE_ENDED) {
+            player.seekToDefaultPosition()
+            player.play()
+        } else {
+            player.playWhenReady = !player.playWhenReady
+        }
     }
 
     fun pause() {

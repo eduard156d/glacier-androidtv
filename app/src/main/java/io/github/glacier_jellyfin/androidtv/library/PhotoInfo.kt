@@ -76,6 +76,7 @@ internal fun PhotoInfoPanel(
     info: PhotoInfoState,
     playing: InlineVideoState,
     transcodeStatus: suspend () -> TranscodeStatus?,
+    place: PhotoPlace?,
     onDismiss: () -> Unit,
 ) {
     val scroll = rememberScrollState()
@@ -104,7 +105,7 @@ internal fun PhotoInfoPanel(
             LaunchedEffect(tab) { scroll.scrollTo(0) }
             Column(Modifier.fillMaxSize().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 when {
-                    tab == TAB_CONTENT -> ContentTab(info)
+                    tab == TAB_CONTENT -> ContentTab(info, place)
                     !video -> TechnicalTab(info)
                     tab == TAB_TECHNICAL -> VideoTechnicalTab(info, live)
                     else -> VideoServerTab(info, live, transcodeStatus)
@@ -116,19 +117,23 @@ internal fun PhotoInfoPanel(
 
 /** What it is: the picture next to its name, when it was taken, where and in which folder. */
 @Composable
-private fun ContentTab(info: PhotoInfoState) {
+private fun ContentTab(info: PhotoInfoState, place: PhotoPlace?) {
     val item = info.item
     val details = info.details
-    val video = item is FolderMedia.Video
+    val video = item as? FolderMedia.Video
     val folder = details?.folderName
     val taken = longTakenText(details?.taken ?: item.date)
-    val length = if (video) runtimeText(details?.runtimeMs ?: (item as FolderMedia.Video).item.runtimeMs) else null
-    val location = details?.let { locationText(it.latitude, it.longitude, it.altitude) }
+    val length = video?.let { runtimeText(details?.runtimeMs ?: it.item.runtimeMs) }
+    val listed = (item as? FolderMedia.Photo)?.photo?.location
+    val namedLocation = details?.location?.name ?: listed?.name
+    val location = listOfNotNull(
+        namedLocation ?: place?.name,
+        locationText(details?.latitude ?: listed?.latitude, details?.longitude ?: listed?.longitude, details?.altitude),
+    ).joinToString(" · ").takeIf(String::isNotEmpty)
     val facts = listOfNotNull(
         taken?.let { stringResource(R.string.photo_info_date) to it },
         folder?.let { stringResource(R.string.photo_info_folder) to it },
         length?.let { stringResource(R.string.photo_info_length) to it },
-        location?.let { stringResource(R.string.photo_info_location) to it },
     )
     val shape = RoundedCornerShape(GlacierShapes.RadiusMd)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(52.dp)) {
@@ -139,7 +144,7 @@ private fun ContentTab(info: PhotoInfoState) {
             },
             Modifier
                 .width(320.dp)
-                .height(if (video) 180.dp else 240.dp)
+                .height(if (video != null) 180.dp else 240.dp)
                 .clip(shape)
                 .border(1.dp, GlacierColors.GlassBorder, shape),
         )
@@ -160,14 +165,41 @@ private fun ContentTab(info: PhotoInfoState) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (facts.isNotEmpty()) {
+            if (facts.isNotEmpty() || location != null || details?.path != null) {
                 Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     facts.forEach { (label, value) -> FactRow(label, value, labelWidth = LABEL_WIDTH) }
+                    location?.let {
+                        FactRow(
+                            stringResource(R.string.photo_info_location),
+                            it,
+                            labelWidth = LABEL_WIDTH,
+                            maxValueLines = Int.MAX_VALUE,
+                        )
+                    }
+                    if (namedLocation == null && place?.fromOpenStreetMap == true) OpenStreetMapAttribution()
+                    details?.path?.let {
+                        FactRow(
+                            stringResource(R.string.photo_info_path),
+                            it,
+                            labelWidth = LABEL_WIDTH,
+                            mono = true,
+                            maxValueLines = Int.MAX_VALUE,
+                        )
+                    }
                 }
             }
             LoadState(info, spinner = 32)
         }
     }
+}
+
+@Composable
+internal fun OpenStreetMapAttribution() {
+    Text(
+        stringResource(R.string.photo_openstreetmap_attribution),
+        style = GlacierText.body(15),
+        color = GlacierColors.Ice,
+    )
 }
 
 /** What this device decodes of the playing video, read once a second; null while nothing plays. */

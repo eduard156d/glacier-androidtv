@@ -153,7 +153,12 @@ class FolderViewModel @Inject constructor(
     val events = _events.receiveAsFlow()
 
     /** The gallery's preview: the focused video plays in it. */
-    private val preview = InlineVideo(context, playback, viewModelScope)
+    private val preview = InlineVideo(
+        context,
+        playback,
+        viewModelScope,
+        blurredBackground = { settings.settings.value.folders.blurredBackground },
+    )
     val previewVideo: StateFlow<InlineVideoState> = preview.state
 
     init {
@@ -288,24 +293,17 @@ class FolderViewModel @Inject constructor(
         memory.folderFocused(folderId, id)
     }
 
-    /**
-     * A video plays, then the folder's next ones, from where the gallery's preview has come to;
-     * a photo opens full screen.
-     */
-    fun open(media: FolderMedia) {
+    /** Opens the shared viewer, or the video player when the user chooses Play in the options. */
+    fun open(media: FolderMedia, inPlayer: Boolean = false) {
         val folder = _state.value.content?.id?.toString() ?: return
+        val video = media as? FolderMedia.Video
+        val previewMs = preview.positionMs.takeIf { previewVideo.value.id == media.id && it > 0 }
         _state.update { it.copy(options = null) }
-        when (media) {
-            is FolderMedia.Video -> {
-                val startMs = preview.positionMs.takeIf { previewVideo.value.id == media.id && it > 0 }
-                preview.release()
-                navigate(PlayerRoute(media.id.toString(), queueOf = folder, startMs = startMs))
-            }
-
-            is FolderMedia.Photo -> {
-                preview.release()
-                navigate(PhotoRoute(folder, media.id.toString()))
-            }
+        preview.release()
+        if (inPlayer && video != null) {
+            navigate(PlayerRoute(media.id.toString(), queueOf = folder, startMs = previewMs))
+        } else {
+            navigate(PhotoRoute(folder, media.id.toString(), startMs = previewMs ?: video?.item?.resumePositionMs))
         }
     }
 

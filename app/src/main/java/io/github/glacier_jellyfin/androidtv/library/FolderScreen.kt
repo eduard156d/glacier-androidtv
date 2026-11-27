@@ -424,7 +424,7 @@ private fun MediaOptionsHost(options: MediaOptions, viewModel: FolderViewModel) 
                 MediaAction.Open -> OptionRow(
                     stringResource(if (video) R.string.player_play else R.string.photo_open),
                     stringResource(if (video) R.string.photo_play_desc else R.string.photo_open_desc),
-                    { viewModel.open(item) },
+                    { viewModel.open(item, inPlayer = video) },
                     modifier,
                     if (video) GlacierIcons.Play else GlacierIcons.Maximize,
                 )

@@ -50,7 +50,22 @@ data class PhotoDetails(
     val bitrate: Int? = null,
     val video: SourceVideo? = null,
     val audio: SourceAudio? = null,
-)
+    val path: String? = null,
+    val locationNames: List<String> = emptyList(),
+) {
+    val location: PhotoLocation get() = PhotoLocation(locationNames, latitude, longitude)
+}
+
+data class PhotoLocation(
+    val names: List<String> = emptyList(),
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+) {
+    val name: String? get() = names.joinToString(" · ").takeIf(String::isNotBlank)
+}
+
+internal val BaseItemDto.photoLocation: PhotoLocation
+    get() = PhotoLocation(productionLocations.orEmpty().filter(String::isNotBlank), latitude, longitude)
 
 /**
  * The f-number for an aperture in APEX units. Jellyfin reports the EXIF ApertureValue, not the f-number:
@@ -96,6 +111,8 @@ fun photoDetails(dto: BaseItemDto, zone: ZoneId = ZoneId.systemDefault()): Photo
         video = streams.takeIf { isVideo }?.firstOrNull { it.type == MediaStreamType.VIDEO }?.toSourceVideo(),
         audio = streams.takeIf { isVideo }?.firstOrNull { it.type == MediaStreamType.AUDIO && !it.isExternal }
             ?.toSourceAudio(),
+        path = path,
+        locationNames = dto.photoLocation.names,
     )
 }
 

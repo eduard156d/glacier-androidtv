@@ -12,6 +12,7 @@ import io.github.glacier_jellyfin.androidtv.core.data.media.FolderContent
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderMedia
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderRepository
 import io.github.glacier_jellyfin.androidtv.core.data.media.PhotoDetails
+import io.github.glacier_jellyfin.androidtv.core.data.media.PhotoLocation
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackRepository
 import io.github.glacier_jellyfin.androidtv.core.data.playback.TranscodeStatus
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsRepository
@@ -20,6 +21,7 @@ import io.github.glacier_jellyfin.androidtv.core.log.Log
 import io.github.glacier_jellyfin.androidtv.navigation.PhotoRoute
 import io.github.glacier_jellyfin.androidtv.navigation.PlayerRoute
 import io.github.glacier_jellyfin.androidtv.ui.UiEvent
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -29,6 +31,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -50,8 +55,10 @@ data class PhotoState(
     val menu: PhotoMenu? = null,
     /** The last photo or video was deleted: the screen goes back. */
     val closed: Boolean = false,
+    val resolvedPhoto: Pair<UUID, PhotoPlace>? = null,
 ) {
     val current: FolderMedia? get() = media.getOrNull(index)
+    val photoPlace: PhotoPlace? get() = resolvedPhoto?.takeIf { it.first == current?.id }?.second
 }
 
 /** What is open over the viewer: the options of the current item, or the question before deleting it. */
@@ -72,6 +79,7 @@ class PhotoViewModel @Inject constructor(
     @param:ApplicationContext context: Context,
     private val repository: FolderRepository,
     private val settings: SettingsRepository,
+    private val geocoder: PhotoGeocoder,
     playback: PlaybackRepository,
     private val memory: BrowseMemory,
 ) : ViewModel() {
@@ -98,6 +106,7 @@ class PhotoViewModel @Inject constructor(
     /** The open details panel, null while it is closed; it stays with the item it was opened for. */
     private val _info = MutableStateFlow<PhotoInfoState?>(null)
     val info: StateFlow<PhotoInfoState?> = _info.asStateFlow()
+    private val detailedLocation = MutableStateFlow<Pair<UUID, PhotoLocation>?>(null)
     private var infoJob: Job? = null
 
     private val _events = Channel<UiEvent>(Channel.BUFFERED)
@@ -110,6 +119,30 @@ class PhotoViewModel @Inject constructor(
 
     init {
         load()
+        val photos = state.map { (it.current as? FolderMedia.Photo)?.photo to it.slideshow }.distinctUntilChanged()
+        val locations = combine(photos, detailedLocation) { (photo, slideshow), detail ->
+            photo?.let {
+                val listed = it.location
+                val lookedUp = detail?.takeIf { entry -> entry.first == it.id }?.second
+                val location = when {
+                    listed.name != null -> listed
+                    lookedUp?.name != null -> lookedUp
+                    listed.coordinates != null -> listed
+                    else -> lookedUp ?: listed
+                }
+                Triple(it.id, location, !slideshow)
+            }
+        }.distinctUntilChanged()
+        viewModelScope.launch {
+            combine(locations, settings.photoGeocoding) { location, options -> location to options }
+                .collectLatest { (location, options) ->
+                    _state.update { it.copy(resolvedPhoto = null) }
+                    val (id, source, interactive) = location ?: return@collectLatest
+                    val place = geocoder.resolve(source, options, Locale.getDefault(), interactive)
+                        ?: return@collectLatest
+                    _state.update { if (it.current?.id == id) it.copy(resolvedPhoto = id to place) else it }
+                }
+        }
     }
 
     fun load() {
@@ -124,7 +157,7 @@ class PhotoViewModel @Inject constructor(
                     _state.update {
                         it.copy(loading = false, media = media, index = start, slideshow = route.slideshow)
                     }
-                    showCurrent()
+                    showCurrent(route.startMs ?: 0L)
                 }
                 .onFailure { error ->
                     Log.w(TAG, "Loading the photos failed", error)
@@ -157,7 +190,7 @@ class PhotoViewModel @Inject constructor(
             inline.release()
             viewModelScope.launch {
                 _events.send(
-                    UiEvent.Navigate(PlayerRoute(current.id.toString(), startMs = position)),
+                    UiEvent.Navigate(PlayerRoute(current.id.toString(), queueOf = route.folderId, startMs = position)),
                 )
             }
         } else {
@@ -226,7 +259,10 @@ class PhotoViewModel @Inject constructor(
         infoJob?.cancel()
         infoJob = viewModelScope.launch {
             runSuspendCatching { repository.photoDetails(item.id) }
-                .onSuccess { details -> _info.update { it?.copy(details = details) } }
+                .onSuccess { details ->
+                    if (item is FolderMedia.Photo) detailedLocation.value = item.id to details.location
+                    _info.update { it?.copy(details = details) }
+                }
                 .onFailure { error ->
                     Log.w(TAG, "Loading the details of ${item.id} failed", error)
                     _info.update { it?.copy(failed = true) }
@@ -273,12 +309,12 @@ class PhotoViewModel @Inject constructor(
     }
 
     /** A photo stays for the slideshow's time; a video plays here to its end. */
-    private fun showCurrent() {
+    private fun showCurrent(startMs: Long = 0L) {
         slideshow?.cancel()
         // The folder's grid focuses this item's card when it is shown again.
         _state.value.current?.let { memory.photoViewed(UUID.fromString(route.folderId), it.id) }
         when (val current = _state.value.current) {
-            is FolderMedia.Video -> inline.open(current.id)
+            is FolderMedia.Video -> inline.open(current.id, startMs = startMs)
 
             is FolderMedia.Photo -> {
                 inline.release()

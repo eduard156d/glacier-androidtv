@@ -1,6 +1,7 @@
 package io.github.glacier_jellyfin.androidtv.library
 
 import android.text.format.DateFormat
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -19,6 +20,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,12 +42,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -104,6 +108,7 @@ import io.github.glacier_jellyfin.androidtv.core.designsystem.blockKeysWhile
 import io.github.glacier_jellyfin.androidtv.core.designsystem.endKey
 import io.github.glacier_jellyfin.androidtv.core.designsystem.startKey
 import io.github.glacier_jellyfin.androidtv.core.log.Log
+import io.github.glacier_jellyfin.androidtv.player.ControlButton
 import io.github.glacier_jellyfin.androidtv.ui.BlurHashCache
 import io.github.glacier_jellyfin.androidtv.ui.CollectEvents
 import io.github.glacier_jellyfin.androidtv.ui.ConfirmDeleteDialog
@@ -123,12 +128,12 @@ import kotlinx.coroutines.withContext
  * A folder's photos and videos full screen, in the folder page's order. A video plays right here.
  * Left and right browse; OK on a photo starts a slideshow, which plays the videos it comes to, and OK
  * during a slideshow stops it (a video then pauses here); OK on a video outside a slideshow opens the full
- * player where it is, and Back from there comes back here. Down and
- * the Info key open the details of the photo or video (file, camera, exposure) and end a slideshow;
- * Back closes them first. Holding OK or the Menu key opens the options: slideshow or play, details and, when the
- * server allows it, delete after a confirmation; a slideshow stops. A deleted item leaves at once and the viewer
- * stays at the same place, and the screen goes back when none is left. Name, date and position show for a moment after each change and switch to the next
- * item at once; the keys show as key caps for a few seconds when the viewer opens and again on Up. A line along the
+ * player where it is, and Back from there comes back here. Down opens the controls for either type of media.
+ * The Info and Menu buttons also work as remote keys. Back closes a panel first, then the controls.
+ * Holding OK opens the existing options, including deletion with confirmation when the server allows it.
+ * A deleted item leaves at once and the viewer stays at the same place, and the screen goes back when none is left.
+ * The location and date stay visible without a scrim until the controls open. The keys show as key caps for a
+ * few seconds when the viewer opens and again on Up. A line along the
  * bottom edge shows how far a video has played, or a photo's time in the slideshow. Browsing to a photo that is not
  * loaded yet shows its BlurHash with a loader until the photo is sharp (its blurred thumbnail when it has none). The
  * next photos in the browsing direction, and the one behind, load ahead. With "Blurred
@@ -154,9 +159,27 @@ fun PhotoScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onStop() }
     val reduceMotion = LocalReduceMotion.current
     val focus = remember { FocusRequester() }
+    val playFocus = remember { FocusRequester() }
+    val infoFocus = remember { FocusRequester() }
+    val menuFocus = remember { FocusRequester() }
+    var restoreFocus by remember { mutableStateOf(playFocus) }
+    var controlsOpen by remember { mutableStateOf(false) }
+    val modalOpen = info != null || state.menu != null
+    val item = state.current
+    val controlsVisible = controlsOpen && item != null && !modalOpen
+    val listedLocation = (item as? FolderMedia.Photo)?.photo?.location
+    val location = listedLocation?.name ?: state.photoPlace?.name
+        ?: listedLocation?.let { locationText(it.latitude, it.longitude) }
+    val date = longTakenText(item?.date)
+    val attributed = listedLocation?.name == null && state.photoPlace?.fromOpenStreetMap == true
     val direction = LocalLayoutDirection.current
-    // After the details or the options close the viewer takes the keys back.
-    LaunchedEffect(info == null, state.menu == null) { runCatching { focus.requestFocus() } }
+    BackHandler(enabled = controlsVisible) { controlsOpen = false }
+    LaunchedEffect(controlsVisible, modalOpen) {
+        if (!modalOpen) {
+            withFrameNanos { }
+            runCatching { (if (controlsVisible) restoreFocus else focus).requestFocus() }
+        }
+    }
     // A slideshow or a video runs on its own: the TV must not dim or start its screensaver meanwhile.
     val view = LocalView.current
     val running = state.slideshow || video.player != null
@@ -165,7 +188,6 @@ fun PhotoScreen(
         onDispose { view.keepScreenOn = false }
     }
     val context = LocalContext.current
-    val item = state.current
     val shownIndex = state.index
     // Holding OK opened the options: the release that follows must not also be an OK.
     var heldOk by remember { mutableStateOf(false) }
@@ -220,7 +242,32 @@ fun PhotoScreen(
             .onPreviewKeyEvent { event ->
                 // Without photos the keys belong to the retry button.
                 // While the details or the options are open the keys belong to the panel.
-                if (info != null || state.menu != null || state.media.isEmpty()) return@onPreviewKeyEvent false
+                if (modalOpen || item == null) return@onPreviewKeyEvent false
+                if (event.key == Key.Menu) {
+                    if (event.type == KeyEventType.KeyUp) viewModel.showMenu(PhotoMenu.Options)
+                    return@onPreviewKeyEvent true
+                }
+                if (event.key == Key.Info) {
+                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                        viewModel.openDetails()
+                    }
+                    return@onPreviewKeyEvent true
+                }
+                if (controlsVisible) {
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            if (event.type == KeyEventType.KeyUp) controlsOpen = false
+                        }
+                        Key.DirectionDown -> Unit
+                        Key.MediaPlayPause -> {
+                            if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                                viewModel.playPause()
+                            }
+                        }
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    return@onPreviewKeyEvent true
+                }
                 val isOk = event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter
                 if (isOk) {
                     // Holding OK repeats the key: the first repeat opens the options, the release does nothing.
@@ -251,10 +298,6 @@ fun PhotoScreen(
                     overlayKey++
                     return@onPreviewKeyEvent true
                 }
-                if (event.key == Key.Menu) {
-                    if (event.type == KeyEventType.KeyUp) viewModel.showMenu(PhotoMenu.Options)
-                    return@onPreviewKeyEvent true
-                }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     direction.startKey -> viewModel.previous()
@@ -263,9 +306,12 @@ fun PhotoScreen(
 
                     Key.MediaPlayPause -> viewModel.playPause()
 
-                    Key.DirectionDown, Key.Info -> viewModel.openDetails()
+                    Key.DirectionDown -> {
+                        restoreFocus = playFocus
+                        controlsOpen = true
+                    }
 
-                    // Up only brings the name and the key caps back.
+                    // Up brings the key caps back.
                     Key.DirectionUp -> hintKey++
 
                     else -> return@onPreviewKeyEvent false
@@ -358,7 +404,7 @@ fun PhotoScreen(
         }
 
         AnimatedVisibility(
-            visible = overlay && item != null && info == null && state.menu == null,
+            visible = !modalOpen && (controlsVisible || location != null || date != null),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -366,24 +412,56 @@ fun PhotoScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD905090F))))
+                    .then(
+                        if (controlsVisible) {
+                            Modifier.background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD905090F))))
+                        } else {
+                            Modifier
+                        },
+                    )
                     .padding(start = PageEdge.dp, end = PageEdge.dp, top = 120.dp, bottom = 56.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    item?.name.orEmpty(),
-                    style = GlacierText.display(34),
-                    color = GlacierColors.Ice,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                longTakenText(item?.date)?.let { Text(it, style = GlacierText.body(21), color = GlacierColors.Mist) }
+                location?.let {
+                    Text(
+                        it,
+                        modifier = Modifier.fillMaxWidth(if (hints && !controlsVisible) 0.48f else 1f),
+                        style = GlacierText.display(34).copy(shadow = CaptionShadow),
+                        color = GlacierColors.Ice,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                date?.let {
+                    Text(it, style = GlacierText.body(21).copy(shadow = CaptionShadow), color = GlacierColors.Ice)
+                }
+                if (attributed) OpenStreetMapAttribution()
+                if (controlsVisible) {
+                    ViewerControls(
+                        state = state,
+                        playing = if (item is FolderMedia.Video) video.playing else state.slideshow,
+                        playFocus = playFocus,
+                        infoFocus = infoFocus,
+                        menuFocus = menuFocus,
+                        onPrevious = viewModel::previous,
+                        onNext = viewModel::next,
+                        onPlayPause = viewModel::playPause,
+                        onInfo = {
+                            restoreFocus = infoFocus
+                            viewModel.openDetails()
+                        },
+                        onMenu = {
+                            restoreFocus = menuFocus
+                            viewModel.showMenu(PhotoMenu.Options)
+                        },
+                    )
+                }
             }
         }
 
-        // The keys at the bottom end, apart from the name, over a soft dark fade along the bottom edge.
+        // The hints use text shadows so the picture stays unobscured while browsing.
         AnimatedVisibility(
-            visible = hints && item != null && info == null && state.menu == null,
+            visible = hints && item != null && !modalOpen && !controlsVisible,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth(),
@@ -391,7 +469,6 @@ fun PhotoScreen(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))))
                     .padding(end = PageEdge.dp, top = 90.dp, bottom = 56.dp),
                 contentAlignment = Alignment.BottomEnd,
             ) {
@@ -399,9 +476,9 @@ fun PhotoScreen(
             }
         }
 
-        // Where in the folder this is, small in the top corner, shown and hidden with the name.
+        // Where in the folder this is, small in the top corner.
         AnimatedVisibility(
-            visible = overlay && state.media.size > 1 && info == null && state.menu == null,
+            visible = (overlay || controlsVisible) && state.media.size > 1 && !modalOpen,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = PageEdge.dp),
@@ -439,9 +516,75 @@ fun PhotoScreen(
 
         current?.let { PhotoMenuHost(it, state.menu, viewModel) }
 
-        info?.let { PhotoInfoPanel(it, video, viewModel::transcodeStatus, onDismiss = viewModel::closeDetails) }
+        info?.let {
+            PhotoInfoPanel(it, video, viewModel::transcodeStatus, state.photoPlace, onDismiss = viewModel::closeDetails)
+        }
     }
 }
+
+@Composable
+private fun ViewerControls(
+    state: PhotoState,
+    playing: Boolean,
+    playFocus: FocusRequester,
+    infoFocus: FocusRequester,
+    menuFocus: FocusRequester,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onPlayPause: () -> Unit,
+    onInfo: () -> Unit,
+    onMenu: () -> Unit,
+) {
+    Row(
+        Modifier
+            .padding(top = 8.dp)
+            .focusProperties { onExit = { cancelFocusChange() } }
+            .focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LeftToRight {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (state.index > 0) {
+                    ControlButton(GlacierIcons.SkipBack, stringResource(R.string.photo_previous), onClick = {
+                        if (state.index == 1) playFocus.requestFocus()
+                        onPrevious()
+                    })
+                }
+                val playLabel = when {
+                    state.current is FolderMedia.Video -> if (playing) R.string.player_pause else R.string.player_play
+                    playing -> R.string.photo_slideshow_stop
+                    else -> R.string.photo_slideshow_start
+                }
+                ControlButton(
+                    if (playing) GlacierIcons.Pause else GlacierIcons.Play,
+                    stringResource(playLabel),
+                    onClick = onPlayPause,
+                    modifier = Modifier.focusRequester(playFocus),
+                    big = true,
+                )
+                if (state.index < state.media.lastIndex) {
+                    ControlButton(GlacierIcons.SkipForward, stringResource(R.string.photo_next), onClick = {
+                        if (state.index == state.media.lastIndex - 1) playFocus.requestFocus()
+                        onNext()
+                    })
+                }
+            }
+        }
+        ControlButton(GlacierIcons.Info, stringResource(R.string.player_info), onInfo, Modifier.focusRequester(infoFocus))
+        ControlButton(
+            GlacierIcons.More,
+            stringResource(R.string.photo_hint_options),
+            onMenu,
+            Modifier.focusRequester(menuFocus),
+        )
+    }
+}
+
+private val CaptionShadow = Shadow(Color.Black.copy(alpha = 0.85f), Offset(0f, 2f), 8f)
 
 /** A thin line filling from left to right over [durationMs], from the start again for each new [key]. */
 @Composable
@@ -498,7 +641,7 @@ private fun PhotoMenuHost(
                 first = first,
             ) {
                 OptionRow(
-                    stringResource(if (video) R.string.player_play else R.string.photo_slideshow_start),
+                    stringResource(if (video) R.string.photo_play_in_player else R.string.photo_slideshow_start),
                     stringResource(if (video) R.string.photo_play_desc else R.string.photo_slideshow_desc),
                     {
                         viewModel.showMenu(null)
@@ -554,8 +697,8 @@ private fun MediaPhoto.placeholder(): ImageBitmap? {
 }
 
 /**
- * The keys of the viewer as plain glyphs and labels, with no box behind them: browse, OK, details and the options
- * (hold OK, or Menu); in a slideshow only OK to pause it. The options' ring fills once as the row appears (at once with
+ * The keys of the viewer as plain glyphs and labels: browse, OK, controls and the options (hold OK, or Menu).
+ * The options' ring fills once as the row appears (at once with
  * "reduce motion"). The arrows are the physical keys and mirror with the layout like the browsing does.
  */
 @Composable
@@ -566,6 +709,7 @@ private fun ViewerHints(video: Boolean, slideshow: Boolean) {
     ) {
         if (slideshow) {
             HintItem(stringResource(R.string.player_pause)) { OkGlyph() }
+            HintItem(stringResource(R.string.photo_hint_controls)) { HintIcon(GlacierIcons.ChevronDown) }
         } else {
             HintItem(stringResource(R.string.photo_hint_browse)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -574,7 +718,7 @@ private fun ViewerHints(video: Boolean, slideshow: Boolean) {
                 }
             }
             HintItem(stringResource(if (video) R.string.player_play else R.string.photo_hint_slideshow)) { OkGlyph() }
-            HintItem(stringResource(R.string.photo_hint_details)) { HintIcon(GlacierIcons.ChevronDown) }
+            HintItem(stringResource(R.string.photo_hint_controls)) { HintIcon(GlacierIcons.ChevronDown) }
             HintItem(stringResource(R.string.photo_hint_options)) { OptionsRing() }
         }
     }

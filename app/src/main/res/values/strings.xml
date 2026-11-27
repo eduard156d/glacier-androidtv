@@ -237,6 +237,12 @@
     <string name="photo_position">%1$d / %2$d</string>
     <string name="photo_error">This photo could not be loaded.</string>
     <string name="photo_hint_browse">Browse</string>
+    <string name="photo_hint_controls">Controls</string>
+    <string name="photo_previous">Previous</string>
+    <string name="photo_next">Next</string>
+    <string name="photo_slideshow_stop">Stop slideshow</string>
+    <string name="photo_openstreetmap_attribution" translatable="false">© OpenStreetMap contributors</string>
+    <string name="photo_info_path">Server path</string>
     <string name="photo_hint_slideshow">Slideshow</string>
     <string name="photo_hint_details">Details</string>
     <string name="photo_hint_options">Options</string>
@@ -245,6 +251,7 @@
     <string name="photo_slideshow_start">Start slideshow</string>
     <string name="photo_slideshow_desc">Plays the photos one after another.</string>
     <string name="photo_play_desc">Plays the video full screen.</string>
+    <string name="photo_play_in_player">Play in the video player</string>
     <string name="photo_details_desc">Shows when it was taken and the file details.</string>
     <string name="photo_delete">Delete</string>
     <string name="photo_delete_desc">Deletes this photo from the server, for everyone. You will be asked first.</string>
@@ -764,6 +771,26 @@
     <string name="settings_cat_playback">Playback</string>
     <string name="settings_cat_audio">Audio</string>
     <string name="settings_cat_subtitles">Subtitles</string>
+    <string name="settings_cat_photos">Photos</string>
+    <string name="settings_photo_lookup_order">Location provider order</string>
+    <string name="settings_photo_custom_url">Custom service</string>
+    <string name="settings_photo_custom_url_sub">Enter the base address of your Nominatim or Photon server.</string>
+    <string name="settings_photo_configure">Configure</string>
+    <string name="settings_photo_android">Android Geocoder</string>
+    <string name="settings_photo_android_sub">Uses your TV’s geocoder, which may look up coordinates online.</string>
+    <string name="settings_photo_nominatim">OpenStreetMap Nominatim</string>
+    <string name="settings_photo_nominatim_sub">Looks up where individually opened photos were taken using the public OpenStreetMap service.</string>
+    <string name="settings_photo_bigdatacloud">BigDataCloud</string>
+    <string name="settings_photo_bigdatacloud_sub">Looks up photo coordinates online using an API key from your BigDataCloud account.</string>
+    <string name="settings_photo_bigdatacloud_key">API key</string>
+    <string name="settings_photo_key_saved">Key saved</string>
+    <string name="settings_photo_key_hint">Your key is encrypted on this TV.</string>
+    <string name="settings_photo_key_invalid">Enter the API key without spaces.</string>
+    <string name="settings_photo_remove_key">Remove key</string>
+    <string name="settings_photo_base_url">Base URL</string>
+    <string name="settings_photo_empty_url">Leave this field empty to disable this service.</string>
+    <string name="settings_photo_invalid_url">Enter an HTTP or HTTPS base URL without credentials, query or fragment.</string>
+    <string name="settings_photo_save">Save</string>
     <string name="settings_cat_account">Account</string>
     <string name="settings_cat_appearance">Appearance</string>
     <string name="settings_cat_home">Home</string>

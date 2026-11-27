@@ -43,6 +43,7 @@ data class InlineVideoState(
     val playback: GlacierPlayback? = null,
     val decoders: DecoderInfo = DecoderInfo(),
     val playing: Boolean = false,
+    val failed: Boolean = false,
 )
 
 /**
@@ -68,6 +69,7 @@ class InlineVideo(
     private var ticker: Job? = null
     private var requestedPosition = 0L
     private var firstFrame = false
+    private var playOnReady = true
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
@@ -104,8 +106,8 @@ class InlineVideo(
     /** The transcoder's state for the stream, for the info panel; null when it is not transcoding or not known. */
     suspend fun transcodeStatus(): TranscodeStatus? = _state.value.source?.let { playback.transcodeStatus(it) }
 
-    /** Where it plays now, for the full player to go on from there; 0 before it plays. */
-    val positionMs: Long get() = _state.value.player?.currentPosition ?: 0
+    /** Where it plays now, or the position to retry if the stream failed. */
+    val positionMs: Long get() = _state.value.player?.currentPosition ?: requestedPosition
 
     /**
      * Plays [id] from [startMs], after [delayMs] in which another [open] or [release] can still call it
@@ -115,11 +117,12 @@ class InlineVideo(
         id: UUID,
         startMs: Long = 0,
         delayMs: Long = 0,
+        recovering: Boolean = false,
     ) {
         if (_state.value.id == id && (_state.value.player != null || opening?.isActive == true)) return
         release()
         requestedPosition = startMs
-        _state.update { it.copy(id = id) }
+        _state.update { it.copy(id = id, playing = playOnReady) }
         opening = scope.launch {
             try {
                 delay(delayMs)
@@ -132,6 +135,9 @@ class InlineVideo(
                         isHls = source.isHls,
                         headers = source.headers,
                         startPositionMs = startMs,
+                        playlist = source.ladder.takeIf { recovering },
+                        startBitrate = source.streamBitrate?.takeIf { recovering }?.let { (it * 110L / 100).toInt() },
+                        patient = recovering && source.isHls,
                         snapStart = startMs > 0,
                         videoRotation = source.file?.video?.rotation,
                         videoWidth = source.file?.video?.width,
@@ -142,8 +148,8 @@ class InlineVideo(
                 val player = created.player
                 player.addListener(listener)
                 player.addAnalyticsListener(decoders)
-                player.playWhenReady = true
-                _state.update { it.copy(player = player, playback = created, progress = 0f, playing = true) }
+                player.playWhenReady = playOnReady
+                _state.update { it.copy(player = player, playback = created, progress = 0f, playing = playOnReady) }
                 startTicker(player, source)
             } catch (e: CancellationException) {
                 throw e
@@ -155,7 +161,14 @@ class InlineVideo(
     }
 
     fun togglePlay() {
-        val player = _state.value.player ?: return
+        val player = _state.value.player
+        if (player == null) {
+            if (opening?.isActive == true) {
+                playOnReady = !playOnReady
+                _state.update { it.copy(playing = playOnReady) }
+            }
+            return
+        }
         if (player.playbackState == Player.STATE_ENDED) {
             player.seekToDefaultPosition()
             player.play()
@@ -165,7 +178,9 @@ class InlineVideo(
     }
 
     fun pause() {
+        playOnReady = false
         _state.value.player?.playWhenReady = false
+        _state.update { it.copy(playing = false) }
     }
 
     fun release() {
@@ -176,7 +191,9 @@ class InlineVideo(
             it.release()
         }
         _state.value = InlineVideoState()
+        requestedPosition = 0L
         firstFrame = false
+        playOnReady = true
     }
 
     private fun startTicker(player: ExoPlayer, source: PlaybackSource) {
@@ -217,7 +234,7 @@ class InlineVideo(
         val player = current.player ?: return
         val id = current.id ?: return
         val position = if (firstFrame) player.currentPosition else requestedPosition
-        // Changing screens or releasing a player belongs outside Media3's callbacks.
+        // Releasing or reopening a player belongs outside Media3's callbacks.
         scope.launch {
             yield()
             if (_state.value.player !== player) return@launch
@@ -232,6 +249,8 @@ class InlineVideo(
         stalled: PlaybackSource? = null,
     ) {
         release()
+        requestedPosition = position
+        _state.value = InlineVideoState(id = id, failed = true)
         onFailed?.invoke(id, position, stalled) ?: onEnded()
     }
 

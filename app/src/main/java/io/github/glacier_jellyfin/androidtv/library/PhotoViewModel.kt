@@ -118,6 +118,7 @@ class PhotoViewModel @Inject constructor(
 
     private var slideshow: Job? = null
     private var active = true
+    private var triedSmallerStream = false
 
     /** OK on a video handed it to the full player at this position; back here it goes on from there. */
     private var handedOver: Pair<UUID, Long>? = null
@@ -285,11 +286,17 @@ class PhotoViewModel @Inject constructor(
 
     /** Play and pause: the video here, or the slideshow on a photo. */
     fun playPause() {
-        if (_state.value.current is FolderMedia.Video && video.value.id != null) {
-            inline.togglePlay()
-        } else {
+        val current = _state.value.current
+        if (current !is FolderMedia.Video) {
             select()
+            return
         }
+        if (video.value.failed) {
+            triedSmallerStream = false
+            inline.open(current.id, startMs = inline.positionMs)
+            return
+        }
+        inline.togglePlay()
     }
 
     /** Back on screen from the full player: the slideshow goes on with the next one, or the video plays on here. */
@@ -297,6 +304,7 @@ class PhotoViewModel @Inject constructor(
         active = true
         val (id, position) = handedOver ?: return
         handedOver = null
+        triedSmallerStream = false
         val current = _state.value.current
         when {
             _state.value.slideshow -> advance()
@@ -322,6 +330,7 @@ class PhotoViewModel @Inject constructor(
     /** A photo stays for the slideshow's time; a video plays here to its end. */
     private fun showCurrent(startMs: Long = 0L) {
         slideshow?.cancel()
+        triedSmallerStream = false
         // The folder's grid focuses this item's card when it is shown again.
         _state.value.current?.let { memory.photoViewed(UUID.fromString(route.folderId), it.id) }
         when (val current = _state.value.current) {
@@ -367,13 +376,14 @@ class PhotoViewModel @Inject constructor(
         }
         if (state.menu != null || _info.value != null) return
         val automaticQuality = settings.settings.value.playback.maxBitrate == MaxBitrate.Auto
-        if (stalled != null && stalled.ladder == null && automaticQuality) {
-            stalled.streamBitrate?.takeIf { it > StreamBudget.FLOOR }?.let { playback.lowerBudget(it) }
+        val bitrate = stalled?.takeIf { it.ladder == null }?.streamBitrate?.takeIf { it > StreamBudget.FLOOR }
+        if (!triedSmallerStream && automaticQuality && bitrate != null) {
+            triedSmallerStream = true
+            playback.lowerBudget(bitrate)
+            inline.open(id, startMs = position, recovering = true)
+            return
         }
-        val playerRoute = PlayerRoute(id.toString(), queueOf = route.folderId, startMs = position)
-        viewModelScope.launch {
-            _events.send(UiEvent.Navigate(playerRoute, replace = true))
-        }
+        _events.trySend(UiEvent.Toast(R.string.player_error))
     }
 
     private fun stopSlideshow() {

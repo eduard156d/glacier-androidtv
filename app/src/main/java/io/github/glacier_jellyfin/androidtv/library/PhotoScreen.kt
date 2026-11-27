@@ -258,12 +258,15 @@ fun PhotoScreen(
                         Key.DirectionUp -> {
                             if (event.type == KeyEventType.KeyUp) controlsOpen = false
                         }
+
                         Key.DirectionDown -> Unit
+
                         Key.MediaPlayPause -> {
                             if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                                 viewModel.playPause()
                             }
                         }
+
                         else -> return@onPreviewKeyEvent false
                     }
                     return@onPreviewKeyEvent true
@@ -574,7 +577,12 @@ private fun ViewerControls(
                 }
             }
         }
-        ControlButton(GlacierIcons.Info, stringResource(R.string.player_info), onInfo, Modifier.focusRequester(infoFocus))
+        ControlButton(
+            GlacierIcons.Info,
+            stringResource(R.string.player_info),
+            onInfo,
+            Modifier.focusRequester(infoFocus),
+        )
         ControlButton(
             GlacierIcons.More,
             stringResource(R.string.photo_hint_options),

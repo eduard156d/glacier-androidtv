@@ -604,10 +604,7 @@ class PlayerViewModel @Inject constructor(
                 watchRecovery()
                 if (!opened.live && opened.ladder == null) {
                     // A transcode takes its time to start: a 4K source needs well over 20 s before the first segment.
-                    watchStartup(
-                        player,
-                        if (opened.method == PlaybackMethod.DirectPlay) STARTUP_MS else TRANSCODE_STARTUP_MS,
-                    )
+                    watchStartup(player, startupTimeoutMs(opened.method))
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -848,11 +845,7 @@ class PlayerViewModel @Inject constructor(
         // new stream gets at the start, then the title is opened again.
         queued?.takeIf { !awaitingStart }?.let { handover ->
             if (currentPositionMs() >= handover.atMs - HANDOVER_EDGE_MS && stallWatch?.isActive != true) {
-                val timeout = if (handover.source.method == PlaybackMethod.DirectPlay) {
-                    STARTUP_MS
-                } else {
-                    TRANSCODE_STARTUP_MS
-                }
+                val timeout = startupTimeoutMs(handover.source.method)
                 Log.i(TAG, "Waiting for the stream handed over to, up to ${timeout / 1000} s")
                 stallWatch = viewModelScope.launch {
                     delay(timeout)
@@ -1248,7 +1241,7 @@ class PlayerViewModel @Inject constructor(
         tracksPending = true
         awaitingStart = player.playbackState != Player.STATE_READY
         if (awaitingStart) {
-            val timeout = if (opened.method == PlaybackMethod.DirectPlay) STARTUP_MS else TRANSCODE_STARTUP_MS
+            val timeout = startupTimeoutMs(opened.method)
             stallWatch?.cancel()
             stallWatch = viewModelScope.launch {
                 delay(timeout)
@@ -1805,11 +1798,6 @@ class PlayerViewModel @Inject constructor(
         const val PROBE_COUNT = 6
         const val PROBE_OLD_BEHIND = 6
         const val OPEN_RETRY_DELAY_MS = 3_000L
-        /** A ladder's buffer is judged from this long after the start. */
-
-        /** A new stream must show a picture within this time. */
-        const val STARTUP_MS = 20_000L
-        const val TRANSCODE_STARTUP_MS = 75_000L
 
         /** Errors of a connection that cannot keep up. */
         val LINK_ERRORS = setOf(
@@ -1872,6 +1860,13 @@ class PlayerViewModel @Inject constructor(
         )
     }
 }
+
+private const val STARTUP_MS = 20_000L
+private const val TRANSCODE_STARTUP_MS = 75_000L
+
+/** A new stream must show a picture within this time. */
+internal fun startupTimeoutMs(method: PlaybackMethod): Long =
+    if (method == PlaybackMethod.DirectPlay) STARTUP_MS else TRANSCODE_STARTUP_MS
 
 internal fun SegmentKind.skipLabel(): Int = when (this) {
     SegmentKind.Intro -> R.string.skip_intro

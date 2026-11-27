@@ -94,6 +94,7 @@ class PhotoViewModel @Inject constructor(
         playback,
         viewModelScope,
         onEnded = ::onVideoEnded,
+        onFailed = ::onVideoFailed,
         blurredBackground = { settings.settings.value.folders.blurredBackground },
     )
     val video: StateFlow<InlineVideoState> = inline.state
@@ -113,6 +114,7 @@ class PhotoViewModel @Inject constructor(
     val events = _events.receiveAsFlow()
 
     private var slideshow: Job? = null
+    private var active = true
 
     /** OK on a video handed it to the full player at this position; back here it goes on from there. */
     private var handedOver: Pair<UUID, Long>? = null
@@ -280,11 +282,16 @@ class PhotoViewModel @Inject constructor(
 
     /** Play and pause: the video here, or the slideshow on a photo. */
     fun playPause() {
-        if (_state.value.current is FolderMedia.Video) inline.togglePlay() else select()
+        if (_state.value.current is FolderMedia.Video && video.value.id != null) {
+            inline.togglePlay()
+        } else {
+            select()
+        }
     }
 
     /** Back on screen from the full player: the slideshow goes on with the next one, or the video plays on here. */
     fun onResume() {
+        active = true
         val (id, position) = handedOver ?: return
         handedOver = null
         val current = _state.value.current
@@ -296,6 +303,7 @@ class PhotoViewModel @Inject constructor(
 
     /** Leaving the screen, not for the full player: nothing plays on behind it. */
     fun onStop() {
+        active = false
         if (handedOver == null) inline.pause()
     }
 
@@ -341,6 +349,20 @@ class PhotoViewModel @Inject constructor(
 
     private fun onVideoEnded() {
         if (_state.value.slideshow) advance()
+    }
+
+    private fun onVideoFailed(id: UUID, position: Long) {
+        val state = _state.value
+        if (!active || state.current?.id != id) return
+        if (state.slideshow) {
+            advance()
+            return
+        }
+        if (state.menu != null || _info.value != null) return
+        val playerRoute = PlayerRoute(id.toString(), queueOf = route.folderId, startMs = position)
+        viewModelScope.launch {
+            _events.send(UiEvent.Navigate(playerRoute, replace = true))
+        }
     }
 
     private fun stopSlideshow() {

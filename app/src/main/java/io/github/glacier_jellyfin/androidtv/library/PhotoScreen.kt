@@ -80,6 +80,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.compose.ContentFrame
+import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import coil3.SingletonImageLoader
@@ -392,13 +393,16 @@ fun PhotoScreen(
 
                     is FolderMedia.Video -> {
                         val player = video.player.takeIf { _ -> video.id == it.id }
-                        // The frame shows until the stream has its first picture, then the video over it.
-                        VideoStill(it.item, playing = player != null)
-                        if (player != null) {
+                        if (player == null) {
+                            VideoStill(it.item, playing = false)
+                        } else {
+                            // The texture follows the viewer's slides and fades, including the outgoing item.
                             ContentFrame(
                                 player = player,
                                 modifier = Modifier.fillMaxSize(),
+                                surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
                                 contentScale = ContentScale.Fit,
+                                shutter = { VideoStill(it.item, playing = true) },
                             )
                         }
                     }
@@ -929,7 +933,7 @@ private fun VideoStill(video: MediaItem, playing: Boolean) {
     val accent = LocalAccent.current
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         AsyncImage(
-            model = video.thumbUrl,
+            model = video.thumbUrl ?: video.posterUrl,
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),

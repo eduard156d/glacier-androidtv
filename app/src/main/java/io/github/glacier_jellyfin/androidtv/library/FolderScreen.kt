@@ -105,6 +105,7 @@ import io.github.glacier_jellyfin.androidtv.core.data.settings.FolderSettings
 import io.github.glacier_jellyfin.androidtv.core.data.settings.FolderShow
 import io.github.glacier_jellyfin.androidtv.core.data.settings.FolderSort
 import io.github.glacier_jellyfin.androidtv.core.data.settings.FolderView
+import io.github.glacier_jellyfin.androidtv.core.designsystem.Breadcrumb
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierCard
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierColors
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierIcons
@@ -112,6 +113,8 @@ import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierShapes
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierText
 import io.github.glacier_jellyfin.androidtv.core.designsystem.LocalAccent
 import io.github.glacier_jellyfin.androidtv.core.designsystem.MarqueeText
+import io.github.glacier_jellyfin.androidtv.core.designsystem.OptionRow
+import io.github.glacier_jellyfin.androidtv.core.designsystem.OptionsPanel
 import io.github.glacier_jellyfin.androidtv.core.designsystem.PillButton
 import io.github.glacier_jellyfin.androidtv.core.designsystem.PillShape
 import io.github.glacier_jellyfin.androidtv.core.designsystem.RowPivot
@@ -119,7 +122,7 @@ import io.github.glacier_jellyfin.androidtv.core.designsystem.SpinningDiamond
 import io.github.glacier_jellyfin.androidtv.core.designsystem.blockKeysWhile
 import io.github.glacier_jellyfin.androidtv.core.designsystem.focusFrame
 import io.github.glacier_jellyfin.androidtv.core.designsystem.rememberEdgeSpec
-import io.github.glacier_jellyfin.androidtv.detail.Crumb
+import io.github.glacier_jellyfin.androidtv.detail.crumbLevel
 import io.github.glacier_jellyfin.androidtv.navigation.BackFromTop
 import io.github.glacier_jellyfin.androidtv.navigation.LocalLibraryKinds
 import io.github.glacier_jellyfin.androidtv.navigation.NavTarget
@@ -127,12 +130,14 @@ import io.github.glacier_jellyfin.androidtv.navigation.TopNav
 import io.github.glacier_jellyfin.androidtv.parental.showsLock
 import io.github.glacier_jellyfin.androidtv.ui.Artwork
 import io.github.glacier_jellyfin.androidtv.ui.CollectEvents
+import io.github.glacier_jellyfin.androidtv.ui.ConfirmDeleteDialog
 import io.github.glacier_jellyfin.androidtv.ui.ContinueCard
 import io.github.glacier_jellyfin.androidtv.ui.FilterChip
 import io.github.glacier_jellyfin.androidtv.ui.HoldOkMark
 import io.github.glacier_jellyfin.androidtv.ui.LocalCardSizes
 import io.github.glacier_jellyfin.androidtv.ui.PageEdge
 import io.github.glacier_jellyfin.androidtv.ui.UiEvent
+import io.github.glacier_jellyfin.androidtv.ui.VideoBadge
 import io.github.glacier_jellyfin.androidtv.ui.runtimeText
 import java.time.LocalDateTime
 import java.time.YearMonth
@@ -155,6 +160,7 @@ fun FolderScreen(onNavigate: (UiEvent.Navigate) -> Unit, viewModel: FolderViewMo
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onStop() }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.shown() }
     val pageFocus = remember { FocusRequester() }
+    val crumbFocus = remember { FocusRequester() }
     // At the top, Back on the page first goes up to the navigation bar. In a folder it goes up a folder.
     val navFocus = remember { FocusRequester() }
     var onPage by remember { mutableStateOf(false) }
@@ -202,8 +208,10 @@ fun FolderScreen(onNavigate: (UiEvent.Navigate) -> Unit, viewModel: FolderViewMo
             runCatching { activeView.requestFocus() }
         }
     }
-    LaunchedEffect(content != null) {
+    // Also after the reload on coming back: the card of what the photo viewer showed last, or the nearest one left.
+    LaunchedEffect(content != null, state.refocus) {
         if (content == null || empty) return@LaunchedEffect
+        state.refocus?.let { lastFocus = it }
         withFrameNanos { }
         fun focus(key: String?) = key?.let { requesters[it] }?.let {
             runCatching { it.requestFocus() }.getOrDefault(false)
@@ -222,6 +230,21 @@ fun FolderScreen(onNavigate: (UiEvent.Navigate) -> Unit, viewModel: FolderViewMo
         ) {
             runCatching { pageFocus.requestFocus() }
         }
+    }
+    // Back from a card's options (or from the delete question): the focus lands on the card again. After a delete
+    // the reload's focus above takes it to the card that took its place.
+    var optionsOpened by remember { mutableStateOf(false) }
+    val optionsOpen = state.options != null
+    LaunchedEffect(optionsOpen) {
+        if (optionsOpen) {
+            optionsOpened = true
+            return@LaunchedEffect
+        }
+        if (!optionsOpened) return@LaunchedEffect
+        optionsOpened = false
+        if (state.refocus != null) return@LaunchedEffect
+        withFrameNanos { }
+        lastFocus?.let { requesters[it] }?.let { runCatching { it.requestFocus() } }
     }
     // Switched between grid and gallery in its dropdown: the new view starts at its top, with the
     // focus back on the dropdown's button, as after any other dropdown.
@@ -256,13 +279,21 @@ fun FolderScreen(onNavigate: (UiEvent.Navigate) -> Unit, viewModel: FolderViewMo
                 val sections = remember(content, settings) { mediaSections(content, settings) }
                 val header: @Composable () -> Unit = {
                     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                        // In a folder: the way down to it, from the kind's name. Too long, it loses its start.
+                        // In a folder: the way down to it, from the kind's name; each folder above opens. Too long, it loses its start.
                         if (!viewModel.inNavBar) {
-                            Crumb(
-                                (listOf(stringResource(LibraryKind.HomeVideos.title)) + content.trail)
-                                    .joinToString(" › "),
-                                overflow = TextOverflow.StartEllipsis,
-                            )
+                            val top = stringResource(LibraryKind.HomeVideos.title)
+                            val topFocus = content.trail.firstOrNull()?.id ?: content.id
+                            val levels = listOf(crumbLevel(top) { viewModel.openLevel(null, null, topFocus) }) +
+                                content.trail.mapIndexed { index, folder ->
+                                    crumbLevel(folder.name) {
+                                        viewModel.openLevel(
+                                            folder.id,
+                                            folder.name,
+                                            content.trail.getOrNull(index + 1)?.id ?: content.id,
+                                        )
+                                    }
+                                }
+                            Breadcrumb(levels, lowestFocus = crumbFocus, startEllipsis = true)
                         }
                         Text(
                             title,
@@ -285,6 +316,8 @@ fun FolderScreen(onNavigate: (UiEvent.Navigate) -> Unit, viewModel: FolderViewMo
                             onAnchor = { menu, rect -> anchors[menu] = rect },
                             menuButtons = menuButtons,
                             active = activeView,
+                            // Up lands on the lowest level of the breadcrumb, not on the one nearest.
+                            crumb = crumbFocus.takeIf { !viewModel.inNavBar },
                         )
                     }
                 }
@@ -347,11 +380,71 @@ fun FolderScreen(onNavigate: (UiEvent.Navigate) -> Unit, viewModel: FolderViewMo
                 onSelect = viewModel::onNav,
                 // Down goes back to the card left last. Not a focus restorer on the page: it would also
                 // take a focus request meant for another card, such as Left from the A–Z rail.
-                down = lastFocus?.let { key -> requesters.getOrPut(key) { FocusRequester() } } ?: pageFocus,
+                // Not the page itself: its first focusable thing is the breadcrumb now.
+                down = lastFocus?.let { key -> requesters.getOrPut(key) { FocusRequester() } }
+                    ?: if (empty) pageFocus else activeView,
                 focusRequester = navFocus,
                 modifier = Modifier.padding(top = 34.dp),
                 backHome = viewModel.inNavBar,
             )
+        }
+
+        state.options?.let { MediaOptionsHost(it, viewModel) }
+    }
+}
+
+/**
+ * What holding OK on a photo or video card opens: its options in a panel, or the question before deleting it.
+ * Photo: open, start the slideshow here, delete. Video: play, delete. Delete only when the server allows it.
+ */
+@Composable
+private fun MediaOptionsHost(options: MediaOptions, viewModel: FolderViewModel) {
+    val item = options.item
+    val video = item is FolderMedia.Video
+    if (options.confirmDelete) {
+        ConfirmDeleteDialog(
+            title = stringResource(if (video) R.string.video_delete_title else R.string.photo_delete_title),
+            body = stringResource(R.string.photo_delete_body, item.name),
+            confirmLabel = stringResource(R.string.photo_delete),
+            onConfirm = viewModel::deleteOptionsItem,
+            onDismiss = viewModel::closeOptions,
+        )
+        return
+    }
+    val first = remember { FocusRequester() }
+    OptionsPanel(
+        title = item.name,
+        subtitle = longTakenText(item.date),
+        onDismiss = viewModel::closeOptions,
+        first = first,
+    ) {
+        mediaActions(item).forEachIndexed { index, action ->
+            val modifier = if (index == 0) Modifier.focusRequester(first) else Modifier
+            when (action) {
+                MediaAction.Open -> OptionRow(
+                    stringResource(if (video) R.string.player_play else R.string.photo_open),
+                    stringResource(if (video) R.string.photo_play_desc else R.string.photo_open_desc),
+                    { viewModel.open(item) },
+                    modifier,
+                    if (video) GlacierIcons.Play else GlacierIcons.Maximize,
+                )
+
+                MediaAction.Slideshow -> OptionRow(
+                    stringResource(R.string.photo_slideshow_start),
+                    stringResource(R.string.photo_slideshow_desc),
+                    { (item as? FolderMedia.Photo)?.let(viewModel::startSlideshow) },
+                    modifier,
+                    GlacierIcons.Play,
+                )
+
+                MediaAction.Delete -> OptionRow(
+                    stringResource(R.string.photo_delete),
+                    stringResource(if (video) R.string.video_delete_desc else R.string.photo_delete_desc),
+                    viewModel::askDelete,
+                    modifier,
+                    GlacierIcons.Trash,
+                )
+            }
         }
     }
 }
@@ -463,6 +556,7 @@ private fun GridLayout(
                         section,
                         settings,
                         onOpen = viewModel::open,
+                        onOptions = viewModel::showOptions,
                         onFocus = { if (showRail) currentLetter = railLetter(it.name) },
                         remembered = remembered,
                         // By name, the last card's Right goes to the rail like every row's end.
@@ -534,6 +628,7 @@ private fun LazyGridScope.mediaCards(
     section: MediaSection,
     settings: FolderSettings,
     onOpen: (FolderMedia) -> Unit,
+    onOptions: (FolderMedia) -> Unit,
     onFocus: (FolderMedia) -> Unit,
     remembered: (String) -> Modifier,
     lastRight: FocusRequester,
@@ -561,11 +656,18 @@ private fun LazyGridScope.mediaCards(
                         progress = item.item.progress,
                         onClick = { onOpen(item) },
                         modifier = modifier,
+                        onLongClick = { onOptions(item) },
                         locked = item.item.showsLock(),
                         imageHeight = cardHeight(),
+                        videoBadge = true,
                     )
 
-                    is FolderMedia.Photo -> PhotoCard(item, onClick = { onOpen(item) }, modifier = modifier)
+                    is FolderMedia.Photo -> PhotoCard(
+                        item,
+                        onClick = { onOpen(item) },
+                        onLongClick = { onOptions(item) },
+                        modifier = modifier,
+                    )
                 }
             }
         }
@@ -692,6 +794,7 @@ private fun GalleryLayout(
                             section = section,
                             labelled = sections.size > 1,
                             onOpen = viewModel::open,
+                            onOptions = viewModel::showOptions,
                             onFocus = {
                                 preview = it
                                 viewModel.showPreview(it)
@@ -723,6 +826,7 @@ private fun Strip(
     section: MediaSection,
     labelled: Boolean,
     onOpen: (FolderMedia) -> Unit,
+    onOptions: (FolderMedia) -> Unit,
     onFocus: (FolderMedia) -> Unit,
     remembered: (String) -> Modifier,
 ) {
@@ -739,6 +843,7 @@ private fun Strip(
                     GalleryTile(
                         item,
                         onClick = { onOpen(item) },
+                        onLongClick = { onOptions(item) },
                         modifier = remembered(item.id.toString()).onFocusChanged { if (it.isFocused) onFocus(item) },
                     )
                 }
@@ -807,7 +912,7 @@ private fun Backdrop(media: FolderMedia?, video: InlineVideoState, inFront: Bool
 /** The picture in front: its name, date and length above the row. */
 @Composable
 private fun Caption(media: FolderMedia, modifier: Modifier) {
-    val length = (media as? FolderMedia.Video)?.item?.runtimeMinutes?.takeIf { it > 0 }?.let { runtimeText(it) }
+    val length = (media as? FolderMedia.Video)?.item?.let { runtimeText(it) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             media.name,
@@ -847,6 +952,7 @@ private fun Toolbar(
     onAnchor: (FolderMenu, Rect) -> Unit,
     menuButtons: Map<FolderMenu, FocusRequester>,
     active: FocusRequester,
+    crumb: FocusRequester?,
 ) {
     Row(
         Modifier
@@ -859,7 +965,9 @@ private fun Toolbar(
                     }
                 }
             }
-            .focusGroup(),
+            .focusGroup()
+            // After the group, so it holds for the controls in it.
+            .then(if (crumb != null) Modifier.focusProperties { up = crumb } else Modifier),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -927,11 +1035,10 @@ private val MediaKind.label: Int
 @Composable
 private fun videoLine(video: MediaItem): String {
     val left = video.remainingMinutes
-    val length = video.runtimeMinutes?.takeIf { it > 0 }
+    val length = runtimeText(video)
     return when {
         left != null && video.progress != null -> stringResource(R.string.minutes_left, left)
-        length != null -> runtimeText(length)
-        else -> ""
+        else -> length.orEmpty()
     }
 }
 
@@ -1013,24 +1120,40 @@ private fun cardHeight(): Int {
     return LocalCardSizes.current.continueWidth * aspect.height / aspect.width
 }
 
-/** A photo: the picture cropped to the card shape like a video's card, its name below. */
+/**
+ * A photo: the picture cropped to the card shape like a video's card, its name below.
+ * The mark says that holding OK opens its options.
+ */
 @Composable
 private fun PhotoCard(
     photo: FolderMedia.Photo,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier,
 ) {
     val accent = LocalAccent.current
     val shape = RoundedCornerShape(GlacierShapes.RadiusMd)
     val sizes = LocalCardSizes.current
-    GlacierCard(onClick = onClick, modifier = modifier.width(sizes.continueWidth.dp)) { focused ->
-        Artwork(
-            photo.photo.thumbUrl,
+    GlacierCard(
+        onClick = onClick,
+        modifier = modifier.width(sizes.continueWidth.dp),
+        onLongClick = onLongClick,
+    ) { focused ->
+        Box(
             Modifier
                 .size(sizes.continueWidth.dp, cardHeight().dp)
                 .focusFrame(focused, shape)
                 .clip(shape),
-        )
+        ) {
+            Artwork(photo.photo.thumbUrl, Modifier.fillMaxSize())
+            HoldOkMark(
+                focused,
+                accent.main,
+                Modifier.align(Alignment.TopEnd).padding(14.dp),
+                size = 34,
+                onPicture = true,
+            )
+        }
         MarqueeText(
             photo.name,
             style = GlacierText.body(19, FontWeight.SemiBold),
@@ -1046,6 +1169,7 @@ private fun PhotoCard(
 private fun GalleryTile(
     media: FolderMedia,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier,
 ) {
     val shape = RoundedCornerShape(GlacierShapes.RadiusSm)
@@ -1053,7 +1177,7 @@ private fun GalleryTile(
         is FolderMedia.Video -> media.item.thumbUrl
         is FolderMedia.Photo -> media.photo.thumbUrl
     }
-    GlacierCard(onClick = onClick, modifier = modifier.width(STRIP_WIDTH.dp)) { focused ->
+    GlacierCard(onClick = onClick, modifier = modifier.width(STRIP_WIDTH.dp), onLongClick = onLongClick) { focused ->
         Box(
             Modifier
                 .size(
@@ -1064,31 +1188,15 @@ private fun GalleryTile(
                 .clip(shape),
         ) {
             Artwork(url, Modifier.fillMaxSize())
+            HoldOkMark(
+                focused,
+                LocalAccent.current.main,
+                Modifier.align(Alignment.TopEnd).padding(8.dp),
+                size = 26,
+                onPicture = true,
+            )
             if (media is FolderMedia.Video) {
-                Row(
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .clip(PillShape)
-                        .background(Color(0xB305090F))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        GlacierIcons.Play,
-                        contentDescription = null,
-                        tint = GlacierColors.Ice,
-                        modifier = Modifier.size(12.dp),
-                    )
-                    media.item.runtimeMinutes?.takeIf { it > 0 }?.let {
-                        Text(
-                            runtimeText(it),
-                            style = GlacierText.body(14),
-                            color = GlacierColors.Ice,
-                        )
-                    }
-                }
+                VideoBadge(Modifier.align(Alignment.BottomEnd).padding(8.dp), runtimeText(media.item))
             }
         }
     }

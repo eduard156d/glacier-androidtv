@@ -22,17 +22,37 @@ collapsed block, and the app shows it when its language is German or Spanish.
 
 ## [Unreleased]
 
+### New
+- A Recordings row on the home screen and recordings as an optional spotlight source
+- A Recordings row on the favorites page
+- Photo and video details in the photo viewer. Press Down or the Info key: the first tab shows when and where it was taken and its folder, the Technical tab the camera, exposure and file. A video shows the same Technical and Server tabs as the player. Hold OK or press Menu for the options, which also delete a photo or video from the server after a confirmation when the server allows it. This also works by holding OK on a photo or video in the folder (#43). A setting fills the black bars around photos and portrait videos with a blurred copy
+- Detail pages of movies and shows with several background images show them one after another
+
 ### Improved
+- The line above a title is now a breadcrumb. Its levels open the library, the show, the season or a parent folder
 - Specials that a season lists between its episodes are marked with a "Special" badge
 - Badges on episode pictures and posters have a darker background and stay readable on bright images
 - Episode details name a special as "Specials" instead of season 0
 - The audio and subtitle choice during playback no longer adds "Applies now" below the title
 - Sorted by year, titles of the same year follow their release date instead of the alphabet
 - Moving up or down into a row now starts at its first card. After that the row remembers the card you left it on, also when you come back from a detail page
+- A to Z ignores articles like "The", "Der" or "La" in the language of each title. The language is taken from your Jellyfin server. Settings › Appearance › Ignore articles turns it off
+- Browsing photos shows the name and date of the next one at once and a blurred preview with a loader until the photo is sharp. The next photos load ahead, so browsing waits less. A photo that fails to load can be tried again with OK (#43)
+- The photo viewer shows its keys as key caps in the bottom corner when it opens, and Up shows them again (#43)
+- Videos in a photo folder carry a play sign, and clips shorter than a minute show their length in seconds (#43)
+- After playback dropped to a smaller stream, it returns to the full quality much sooner: about 40 seconds instead of several minutes, with less waiting before the switch
+- The info panel shows when the next connection check runs while a smaller stream plays
+- Home videos without a picture on the server show a frame of the video in the grid, the gallery and the viewer. Portrait videos and phone videos recorded upright appear the right way up
 
 ### Fixed
+- Photos and videos show the time they were taken in the TV's time zone. It was off by the time difference to UTC before (#43)
 - The specials season lists its episodes in order instead of by title
 - Rotated home videos show upright on TVs that ignored the rotation (#43)
+- Live TV recordings no longer show up among movies and shows. They stay under Live TV > Recordings and search still finds them
+- YouTube trailers no longer stay on the loading screen or fail while they already play
+- Playback no longer drops to a smaller stream because of one slow connection test while it keeps up. The test shares the connection with the video, so it is repeated and checked against the player's own speed first
+- An episode no longer starts with subtitles (or audio) the server picked for an earlier episode, such as Japanese subtitles. The next episode only takes over tracks you picked yourself
+- Home videos no longer show the "Next episode" countdown near their end. The next video of the folder still starts when one ends
 
 ## [0.10.1] - 2026-11-18
 

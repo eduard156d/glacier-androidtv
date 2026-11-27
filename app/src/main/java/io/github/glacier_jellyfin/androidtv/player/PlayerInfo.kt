@@ -1,5 +1,6 @@
 package io.github.glacier_jellyfin.androidtv.player
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -70,7 +71,9 @@ import io.github.glacier_jellyfin.androidtv.core.data.media.channelLayout
 import io.github.glacier_jellyfin.androidtv.core.data.media.subtitleFormat
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackMethod
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackSubtitle
+import io.github.glacier_jellyfin.androidtv.core.data.playback.SourceAudio
 import io.github.glacier_jellyfin.androidtv.core.data.playback.SourceFile
+import io.github.glacier_jellyfin.androidtv.core.data.playback.SourceVideo
 import io.github.glacier_jellyfin.androidtv.core.data.playback.SubtitleDelivery
 import io.github.glacier_jellyfin.androidtv.core.data.playback.TranscodeStatus
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierColors
@@ -151,7 +154,8 @@ fun InfoPanel(
 
 /**
  * The info panel's frame, also the music player's: a dimmed screen, a card with
- * [tabs] on top and the chosen tab's [content]. Left/Right switch tabs, OK or Back closes.
+ * [tabs] on top and the chosen tab's [content]. Left/Right switch tabs, OK or Back closes. With a single tab the
+ * tab row is left out and Left/Right do nothing.
  *
  * The card sits on the bottom of the screen area (where it sat when centred) with a standard height. A tab for which
  * [growsWithContent] is true wraps its content instead: it keeps the standard height as a minimum and grows upward
@@ -210,7 +214,7 @@ internal fun InfoPanelFrame(
                 .padding(horizontal = 48.dp, vertical = 40.dp),
             verticalArrangement = Arrangement.spacedBy(30.dp),
         ) {
-            GlacierTabs(labels = tabs, selected = tab, modifier = Modifier.fillMaxWidth())
+            if (tabs.size > 1) GlacierTabs(labels = tabs, selected = tab, modifier = Modifier.fillMaxWidth())
             Box(Modifier.fillMaxWidth().then(if (grows) Modifier else Modifier.weight(1f))) { content(tab) }
         }
     }
@@ -356,25 +360,67 @@ private fun CastRow(cast: List<CastMember>) {
 
 @Composable
 private fun TechnicalTab(state: PlayerUiState, stats: StreamStats?) {
+    TechnicalCards(
+        decoders = DecoderInfo(state.videoDecoder, state.audioDecoder, state.audioOutput),
+        audioLanguage = state.audioTracks.firstOrNull { it.index == state.audioIndex }?.language,
+        subtitle = state.subtitles.firstOrNull { it.track.index == state.subtitleIndex },
+        showSubtitles = true,
+        file = state.file,
+        staticFallback = false,
+        switch = state.switch,
+        stats = stats,
+        linkCheck = state.linkCheck,
+    )
+}
+
+/** The decoders Media3 picked and what reaches the audio output; see [DecoderListener]. */
+data class DecoderInfo(
+    val video: String? = null,
+    val audio: String? = null,
+    val output: AudioOutput? = null,
+)
+
+/**
+ * The cards of the technical tab: picture and sound as this device plays them, the subtitle ([showSubtitles]), the TV
+ * and the buffer. With [staticFallback] the video and audio cards tell what the server says of [file] while nothing plays.
+ */
+@Composable
+internal fun TechnicalCards(
+    decoders: DecoderInfo,
+    audioLanguage: String?,
+    subtitle: PlaybackSubtitle?,
+    showSubtitles: Boolean,
+    file: SourceFile?,
+    staticFallback: Boolean,
+    switch: StreamSwitch?,
+    stats: StreamStats?,
+    linkCheck: LinkCheck? = null,
+) {
     val context = LocalContext.current
     val display = remember(context) { displayInfo(context) }
     // Wraps its content (see InfoPanelFrame): the cards are as tall as their rows need, the two of a row alike.
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            VideoCard(state.videoDecoder, stats, Modifier.weight(1f).fillMaxHeight())
+            VideoCard(
+                decoders.video,
+                stats,
+                Modifier.weight(1f).fillMaxHeight(),
+                source = file?.video.takeIf { staticFallback },
+            )
             AudioCard(
-                language = state.audioTracks.firstOrNull { it.index == state.audioIndex }?.language,
-                decoder = state.audioDecoder,
-                output = state.audioOutput,
+                language = audioLanguage,
+                decoder = decoders.audio,
+                output = decoders.output,
                 stats = stats,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
+                source = file?.audio?.firstOrNull().takeIf { staticFallback },
             )
         }
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            SubtitleCard(state, Modifier.weight(1f).fillMaxHeight())
-            DisplayCard(state, stats, display, Modifier.weight(1f).fillMaxHeight())
+            if (showSubtitles) SubtitleCard(subtitle, Modifier.weight(1f).fillMaxHeight())
+            DisplayCard(file?.video?.frameRate, stats, display, Modifier.weight(1f).fillMaxHeight())
         }
-        BufferRow(stats, state.switch)
+        BufferRow(stats, switch, linkCheck)
     }
 }
 
@@ -384,6 +430,7 @@ internal fun VideoCard(
     decoder: String?,
     stats: StreamStats?,
     modifier: Modifier,
+    source: SourceVideo? = null,
 ) {
     val format = stats?.video
     InfoCard(
@@ -395,8 +442,10 @@ internal fun VideoCard(
                 stringResource(R.string.player_info_hardware) to Tone.Ok
             }
         },
-        headline = format?.let(::videoHeadline),
-        details = format?.let(::videoDetails),
+        headline = format?.let(::videoHeadline) ?: source?.let(::sourceVideoHeadline)?.ifEmpty { null },
+        details = format?.let(::videoDetails)
+            ?: source?.let { listOfNotNull(it.frameRate?.takeIf { fps -> fps > 0 }?.let(::fpsText), rangeText(it)) }
+                ?.joinToString(" · ")?.ifEmpty { null },
         modifier = modifier,
     ) {
         decoder?.let { FactRow(stringResource(R.string.player_info_decoder), it, mono = true) }
@@ -412,15 +461,19 @@ internal fun AudioCard(
     output: AudioOutput?,
     stats: StreamStats?,
     modifier: Modifier,
+    source: SourceAudio? = null,
 ) {
     val locale = LocalConfiguration.current.locales[0]
     val format = stats?.audio
     InfoCard(
         label = stringResource(R.string.player_audio),
         status = output?.passthrough?.let { stringResource(R.string.player_info_passthrough) to Tone.Ok },
-        headline = listOfNotNull(Languages.name(language, locale), format?.let(::audioHeadline))
-            .joinToString(" · ").ifEmpty { null },
-        details = format?.let(::audioDetails)?.ifEmpty { null },
+        headline = listOfNotNull(
+            Languages.name(language, locale),
+            format?.let(::audioHeadline) ?: source?.let(::sourceAudioText),
+        ).joinToString(" · ").ifEmpty { null },
+        details = format?.let(::audioDetails)?.ifEmpty { null }
+            ?: source?.let(::sourceAudioDetails)?.ifEmpty { null },
         modifier = modifier,
     ) {
         output?.let {
@@ -439,8 +492,7 @@ internal fun AudioCard(
 }
 
 @Composable
-private fun SubtitleCard(state: PlayerUiState, modifier: Modifier) {
-    val subtitle = state.subtitles.firstOrNull { it.track.index == state.subtitleIndex }
+private fun SubtitleCard(subtitle: PlaybackSubtitle?, modifier: Modifier) {
     InfoCard(
         label = stringResource(R.string.player_subtitles),
         status = subtitle?.let {
@@ -467,12 +519,12 @@ private fun SubtitleCard(state: PlayerUiState, modifier: Modifier) {
 
 @Composable
 private fun DisplayCard(
-    state: PlayerUiState,
+    fileFrameRate: Float?,
     stats: StreamStats?,
     display: DisplayInfo,
     modifier: Modifier,
 ) {
-    val fps = stats?.video?.frameRate?.takeIf { it > 0 } ?: state.file?.video?.frameRate
+    val fps = stats?.video?.frameRate?.takeIf { it > 0 } ?: fileFrameRate
     val matches = fps?.let { frameRateMatches(display.refreshRate, it) }
     val accent = LocalAccent.current
     InfoCard(
@@ -521,10 +573,15 @@ private val BufferLabelWidth = 120.dp
 
 /**
  * How much of the stream waits on this device, and how fast it comes in. While a hand over to another stream is pending
- * ([switch]) the bar shows both streams' share and lines tell of the change; without one the row stays compact.
+ * ([switch]) the bar shows both streams' share and lines tell of the change; without one the row stays compact, plus a line
+ * for the next test of the link ([linkCheck]) while a lowered stream waits to go back.
  */
 @Composable
-internal fun BufferRow(stats: StreamStats?, switch: StreamSwitch? = null) {
+internal fun BufferRow(
+    stats: StreamStats?,
+    switch: StreamSwitch? = null,
+    linkCheck: LinkCheck? = null,
+) {
     val handOver = stats?.handOver.takeIf { switch != null }
     val slots = switch != null
     val labelModifier = if (slots) Modifier.width(BufferLabelWidth) else Modifier
@@ -629,6 +686,27 @@ internal fun BufferRow(stats: StreamStats?, switch: StreamSwitch? = null) {
                     }
                 }
             }
+            if (switch == null && linkCheck != null) {
+                // Counts down on its own clock: the stats tick once a second, but equal stats do not recompose.
+                val now by produceState(SystemClock.elapsedRealtime()) {
+                    while (isActive) {
+                        value = SystemClock.elapsedRealtime()
+                        delay(1_000)
+                    }
+                }
+                val seconds = ((linkCheck.atMs - now + 999) / 1000).coerceAtLeast(0).toInt()
+                Text(
+                    if (linkCheck.running || seconds == 0) {
+                        stringResource(R.string.player_info_link_checking)
+                    } else {
+                        stringResource(R.string.player_info_link_check_in, seconds)
+                    },
+                    style = GlacierText.body(16),
+                    color = OsdSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -680,8 +758,28 @@ private fun ServerTab(
     stats: StreamStats?,
     transcodeStatus: suspend () -> TranscodeStatus?,
 ) {
-    val method = state.method ?: return
-    val file = state.file
+    ServerCards(
+        method = state.method ?: return,
+        file = state.file,
+        audioIndex = state.audioIndex,
+        audioTracks = state.audioTracks,
+        subtitle = state.subtitles.firstOrNull { it.track.index == state.subtitleIndex },
+        stats = stats,
+        transcodeStatus = transcodeStatus,
+    )
+}
+
+/** How the server delivers: the way, the file against the stream, and the transcoder's work when it converts. */
+@Composable
+internal fun ServerCards(
+    method: PlaybackMethod,
+    file: SourceFile?,
+    audioIndex: Int?,
+    audioTracks: List<Track>,
+    subtitle: PlaybackSubtitle?,
+    stats: StreamStats?,
+    transcodeStatus: suspend () -> TranscodeStatus?,
+) {
     val direct = method == PlaybackMethod.DirectPlay
     val status by produceState<TranscodeStatus?>(null, method) {
         if (direct) return@produceState
@@ -691,14 +789,14 @@ private fun ServerTab(
         }
     }
     val reasons = file?.transcodeReasons?.ifEmpty { null } ?: status?.reasons.orEmpty()
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         DeliveryHeader(method, reasons)
         if (file != null) {
             StreamTable(
                 file = file,
-                audioIndex = state.audioIndex,
-                audioTracks = state.audioTracks,
-                subtitle = state.subtitles.firstOrNull { it.track.index == state.subtitleIndex },
+                audioIndex = audioIndex,
+                audioTracks = audioTracks,
+                subtitle = subtitle,
                 stats = stats,
                 status = status,
                 direct = direct,

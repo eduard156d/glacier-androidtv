@@ -28,6 +28,7 @@ import java.net.URI
 import java.net.URL
 import java.net.URLEncoder
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Duration.Companion.minutes
@@ -202,6 +203,22 @@ data class SourceAudio(
     val sampleRate: Int?,
     val bitrate: Int?,
 )
+
+/** The video stream as the server describes it. */
+fun MediaStream.toSourceVideo() = SourceVideo(
+    codec = codec,
+    profile = profile,
+    width = width,
+    height = height,
+    bitDepth = bitDepth,
+    frameRate = realFrameRate ?: averageFrameRate,
+    rangeType = videoRangeType.serialName,
+    dolbyVisionProfile = dvProfile,
+    rotation = rotation,
+)
+
+/** The audio stream as the server describes it. */
+fun MediaStream.toSourceAudio() = SourceAudio(index, codec, profile, channels, sampleRate, bitRate)
 
 /** What the server's transcoder is doing for this device right now. */
 data class TranscodeStatus(
@@ -420,7 +437,8 @@ class PlaybackRepository @Inject constructor(
     private suspend fun downloadBps(session: Session, blockBytes: Int): Double? {
         val started = System.nanoTime()
         val deadline = started + BandwidthProbe.TIMEOUT_MS * 1_000_000
-        var received = 0L
+        // AtomicLong because the counter is mutated inside the lambda below and read after it.
+        val received = AtomicLong()
         val failed = runSuspendCatching {
             val base = checkNotNull(session.api.baseUrl).trimEnd('/')
             val connection = (
@@ -439,7 +457,7 @@ class PlaybackRepository @Inject constructor(
                         currentCoroutineContext().ensureActive()
                         val n = input.read(buffer)
                         if (n < 0) break
-                        received += n
+                        received.addAndGet(n.toLong())
                         // A debug cap makes the test as slow as a stream would be.
                         delay(DebugThrottle.waitNs(n) / 1_000_000)
                     }
@@ -450,10 +468,10 @@ class PlaybackRepository @Inject constructor(
                 connection.disconnect()
             }
         }.onFailure {
-            if (received == 0L) Log.w(TAG, "Measuring the bandwidth failed", it)
-        }.isFailure && received == 0L
+            if (received.get() == 0L) Log.w(TAG, "Measuring the bandwidth failed", it)
+        }.isFailure && received.get() == 0L
         if (failed) return null
-        return BandwidthProbe.bitsPerSecond(received, System.nanoTime() - started)
+        return BandwidthProbe.bitsPerSecond(received.get(), System.nanoTime() - started)
     }
 
     /**
@@ -630,17 +648,19 @@ class PlaybackRepository @Inject constructor(
     }
 
     /**
-     * A stream of [streamBitrate] stalled: streams may use less from now on, so the next one is
-     * held to it. Returns the new budget.
+     * A stream of [streamBitrate] was too much for the link: streams may use less from now on, so the next one is
+     * held to it. [cause] is what set it off for the log, e.g. "link test"; null for a real stall.
+     * Returns the new budget.
      */
-    fun lowerBudget(streamBitrate: Int): Int {
+    fun lowerBudget(streamBitrate: Int, cause: String? = null): Int {
         val value = StreamBudget.afterStall(streamBitrate, currentBudget())
         keepBudget(value, STALL_VALID_MS, afterStall = true)
+        val what = if (cause == null) "Playback stalled" else "Lowered"
         Log.w(
             TAG,
-            "Playback stalled at ${StreamBudget.describe(
-                streamBitrate,
-            )}, streams may use ${StreamBudget.describe(value)}",
+            "$what at ${StreamBudget.describe(streamBitrate)}" +
+                (cause?.let { " ($it)" } ?: "") +
+                ", streams may use ${StreamBudget.describe(value)}",
         )
         return value
     }
@@ -1132,22 +1152,9 @@ class PlaybackRepository @Inject constructor(
                     }?.let {
                         if (source.transcodingSubProtocol == MediaStreamProtocol.HLS) "HLS · $it" else it
                     },
-                    video = streams.firstOrNull { it.type == MediaStreamType.VIDEO }?.let {
-                        SourceVideo(
-                            codec = it.codec,
-                            profile = it.profile,
-                            width = it.width,
-                            height = it.height,
-                            bitDepth = it.bitDepth,
-                            frameRate = it.realFrameRate ?: it.averageFrameRate,
-                            rangeType = it.videoRangeType.serialName,
-                            dolbyVisionProfile = it.dvProfile,
-                            rotation = it.rotation,
-                        )
-                    },
-                    audio = streams.filter { it.type == MediaStreamType.AUDIO && !it.isExternal }.map {
-                        SourceAudio(it.index, it.codec, it.profile, it.channels, it.sampleRate, it.bitRate)
-                    },
+                    video = streams.firstOrNull { it.type == MediaStreamType.VIDEO }?.toSourceVideo(),
+                    audio = streams.filter { it.type == MediaStreamType.AUDIO && !it.isExternal }
+                        .map { it.toSourceAudio() },
                     transcodeReasons = reasons?.split(',')?.filter { it.isNotBlank() }.orEmpty(),
                 ),
             )

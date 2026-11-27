@@ -1,6 +1,7 @@
 package io.github.glacier_jellyfin.androidtv.library
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -47,8 +48,8 @@ data class InlineVideoState(
 /**
  * One home video playing inside a screen rather than the full player: the photo viewer, the
  * gallery's preview. [onEnded] handles completion. [onFailed], when supplied, handles failures with
- * the item's id and the last usable position. Nothing is reported to the server: the full
- * player does that once OK hands the video over.
+ * the item's id, the last usable position and, on a stall, the stalled source.
+ * The full player reports playback to the server after the handover.
  */
 @OptIn(UnstableApi::class)
 class InlineVideo(
@@ -56,7 +57,7 @@ class InlineVideo(
     private val playback: PlaybackRepository,
     private val scope: CoroutineScope,
     private val onEnded: () -> Unit = {},
-    private val onFailed: ((UUID, Long) -> Unit)? = null,
+    private val onFailed: ((UUID, Long, PlaybackSource?) -> Unit)? = null,
     /** Whether a portrait video gets a blurred background (Settings), read when a video opens. */
     private val blurredBackground: () -> Boolean = { false },
 ) {
@@ -65,7 +66,6 @@ class InlineVideo(
 
     private var opening: Job? = null
     private var ticker: Job? = null
-    private var startupWatch: Job? = null
     private var requestedPosition = 0L
     private var firstFrame = false
 
@@ -74,12 +74,10 @@ class InlineVideo(
             if (_state.value.player !== player) return
             val playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED
             _state.update { it.copy(playing = playing) }
-            if (events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)) watchStartup(player)
         }
 
         override fun onRenderedFirstFrame() {
             firstFrame = true
-            startupWatch?.cancel()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -146,20 +144,7 @@ class InlineVideo(
                 player.addAnalyticsListener(decoders)
                 player.playWhenReady = true
                 _state.update { it.copy(player = player, playback = created, progress = 0f, playing = true) }
-                watchStartup(player)
-                ticker = scope.launch {
-                    while (isActive) {
-                        val duration = player.duration.takeIf { it > 0 }
-                        if (duration != null) {
-                            _state.update {
-                                it.copy(
-                                    progress = (player.currentPosition.toFloat() / duration).coerceIn(0f, 1f),
-                                )
-                            }
-                        }
-                        delay(TICK_MS)
-                    }
-                }
+                startTicker(player, source)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -186,7 +171,6 @@ class InlineVideo(
     fun release() {
         opening?.cancel()
         ticker?.cancel()
-        startupWatch?.cancel()
         _state.value.player?.let {
             it.removeListener(listener)
             it.release()
@@ -195,14 +179,28 @@ class InlineVideo(
         firstFrame = false
     }
 
-    private fun watchStartup(player: Player) {
-        startupWatch?.cancel()
-        if (onFailed == null || firstFrame || !player.playWhenReady) return
-        val method = _state.value.source?.method ?: return
-        startupWatch = scope.launch {
-            delay(startupTimeoutMs(method))
-            if (_state.value.player === player && !firstFrame && player.playWhenReady) {
-                failPlayer("No video frame appeared during inline startup")
+    private fun startTicker(player: Player, source: PlaybackSource) {
+        ticker = scope.launch {
+            val timeout = startupTimeoutMs(source.method)
+            var lastMovement = SystemClock.elapsedRealtime()
+            var lastPosition = player.currentPosition
+            while (isActive) {
+                val now = SystemClock.elapsedRealtime()
+                val position = player.currentPosition
+                val expectedToPlay = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+                if (!expectedToPlay || (firstFrame && position != lastPosition)) lastMovement = now
+                if (onFailed != null && now - lastMovement >= timeout) {
+                    val where = if (firstFrame) position else requestedPosition
+                    Log.w(TAG, "No inline video progress for ${timeout / 1000} s")
+                    fail(source.itemId, where, stalled = source)
+                    return@launch
+                }
+                val duration = player.duration
+                if (duration > 0) {
+                    _state.update { it.copy(progress = (position.toFloat() / duration).coerceIn(0f, 1f)) }
+                }
+                lastPosition = position
+                delay(TICK_MS)
             }
         }
     }
@@ -221,9 +219,13 @@ class InlineVideo(
         }
     }
 
-    private fun fail(id: UUID, position: Long) {
+    private fun fail(
+        id: UUID,
+        position: Long,
+        stalled: PlaybackSource? = null,
+    ) {
         release()
-        onFailed?.invoke(id, position) ?: onEnded()
+        onFailed?.invoke(id, position, stalled) ?: onEnded()
     }
 
     private companion object {

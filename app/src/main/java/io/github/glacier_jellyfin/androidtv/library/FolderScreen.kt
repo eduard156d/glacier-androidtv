@@ -793,7 +793,7 @@ private fun GalleryLayout(
                         Strip(
                             section = section,
                             labelled = sections.size > 1,
-                            onOpen = viewModel::open,
+                            onOpen = { viewModel.open(it, inPlayer = true) },
                             onOptions = viewModel::showOptions,
                             onFocus = {
                                 preview = it

@@ -64,8 +64,6 @@ import io.github.glacier_jellyfin.androidtv.core.designsystem.blockKeysWhile
 import io.github.glacier_jellyfin.androidtv.detail.TrackKind
 import io.github.glacier_jellyfin.androidtv.ui.Artwork
 import io.github.glacier_jellyfin.androidtv.ui.CollectEvents
-import io.github.glacier_jellyfin.androidtv.ui.DeleteMediaDialog
-import io.github.glacier_jellyfin.androidtv.ui.UiEvent
 import kotlinx.coroutines.delay
 
 /** OSD hides after this long without input while playing (agreed: 3 s). */
@@ -83,16 +81,12 @@ private val SKIP_LAYER_BOTTOM = 64.dp
 
 @OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(
-    onBack: () -> Unit,
-    onNavigate: (UiEvent.Navigate) -> Unit,
-    viewModel: PlayerViewModel = hiltViewModel(),
-) {
+fun PlayerScreen(onBack: () -> Unit, viewModel: PlayerViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
 
     LaunchedEffect(viewModel) { viewModel.finished.collect { onBack() } }
-    CollectEvents(viewModel.events, onNavigate = onNavigate)
+    CollectEvents(viewModel.events, onNavigate = {})
     BackHandler { viewModel.stop() }
     // Leaving the app (Home button) pauses; nobody is watching.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.pause() }
@@ -111,7 +105,7 @@ fun PlayerScreen(
     val buttonFocus = remember { OsdButton.entries.associateWith { FocusRequester() } }
     val skipFocus = remember { FocusRequester() }
     val upNextFocus = remember { FocusRequester() }
-    val overlayOpen = state.trackPanel != null || state.chaptersOpen || state.infoOpen || state.deleteOpen
+    val overlayOpen = state.trackPanel != null || state.chaptersOpen || state.infoOpen
     // Back's release only counts when its press came here too, not to an overlay that closed on it.
     var backDown by remember { mutableStateOf(false) }
     val upNext = progress.upNext?.let { countdown -> state.next?.let { it to countdown } }
@@ -333,7 +327,7 @@ fun PlayerScreen(
 
         // The chapter sheet takes the OSD's place at the bottom (design); it would show through otherwise.
         AnimatedVisibility(
-            visible = osdVisible && !state.failed && !state.chaptersOpen && !state.deleteOpen,
+            visible = osdVisible && !state.failed && !state.chaptersOpen,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -352,7 +346,6 @@ fun PlayerScreen(
                         OsdButton.Subtitles -> viewModel.openTracks(TrackKind.Subtitles)
                         OsdButton.Chapters -> viewModel.openChapters()
                         OsdButton.Info -> viewModel.openInfo()
-                        OsdButton.Delete -> viewModel.openDelete()
                     }
                 },
                 onScrub = ::scrub,
@@ -456,17 +449,6 @@ fun PlayerScreen(
         }
 
         if (state.failed) PlaybackFailureCard(state, onRetry = viewModel::load, onBack = viewModel::stop)
-
-        val item = state.details?.item
-        if (state.deleteOpen && item != null) {
-            DeleteMediaDialog(
-                title = stringResource(R.string.player_delete_title),
-                message = stringResource(R.string.player_delete_body, item.title),
-                deleting = state.deleting,
-                onConfirm = viewModel::deleteVideo,
-                onDismiss = viewModel::closeDelete,
-            )
-        }
     }
 }
 

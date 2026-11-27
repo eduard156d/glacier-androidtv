@@ -3,6 +3,7 @@ package io.github.glacier_jellyfin.androidtv.core.data.media
 import java.util.UUID
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.imageApi
+import org.jellyfin.sdk.api.client.extensions.videoApi
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.CollectionType
@@ -212,6 +213,11 @@ internal class MediaMapper(private val api: ApiClient) {
     }
 
     private fun thumb(dto: BaseItemDto): String? {
+        // A home video without a picture of its own shows a frame of itself, grabbed on the device.
+        if (VideoFrames.needsFrame(dto.type, dto.imageTags?.get(ImageType.PRIMARY))) {
+            val stream = api.videoApi.getVideoStreamUrl(itemId = dto.id, static = true)
+            return VideoFrames.encode(stream, VideoFrames.positionMs(dto.runTimeTicks?.let { it / TICKS_PER_MS }))
+        }
         // An episode's primary image is its own 16:9 still: more specific than any series art.
         // A home video's is a frame of the video itself.
         if (dto.type == BaseItemKind.EPISODE || dto.type == BaseItemKind.VIDEO) {
@@ -231,6 +237,11 @@ internal class MediaMapper(private val api: ApiClient) {
         }
         return parentBackdrop(dto, ImageWidth.THUMB)
     }
+
+    /** Every backdrop of the item in server order, else those of its parent; the first is [backdrop]'s. */
+    fun backdrops(dto: BaseItemDto): List<String> =
+        backdropRefs(dto.id, dto.backdropImageTags, dto.parentBackdropItemId, dto.parentBackdropImageTags)
+            .map { image(it.itemId, ImageType.BACKDROP, it.tag, ImageWidth.BACKDROP, it.index.takeIf { i -> i > 0 }) }
 
     /** For episodes, the show's own 16:9 art; null for everything else. */
     private fun showThumb(dto: BaseItemDto): String? {
@@ -263,11 +274,6 @@ internal class MediaMapper(private val api: ApiClient) {
         return parentBackdrop(dto, ImageWidth.BACKDROP)
     }
 
-    fun movieBackdrops(dto: BaseItemDto): List<String> = dto.backdropImageTags.orEmpty()
-        .mapIndexedNotNull { index, tag ->
-            if (tag.isBlank()) null else image(dto.id, ImageType.BACKDROP, tag, ImageWidth.BACKDROP, index)
-        }
-
     private fun parentBackdrop(dto: BaseItemDto, width: Int): String? {
         val parent = dto.parentBackdropItemId ?: return null
         val tag = dto.parentBackdropImageTags?.firstOrNull() ?: return null
@@ -282,10 +288,17 @@ internal class MediaMapper(private val api: ApiClient) {
             name = dto.name.orEmpty(),
             thumbUrl = image(dto.id, ImageType.PRIMARY, tag, ImageWidth.THUMB),
             fullUrl = image(dto.id, ImageType.PRIMARY, tag, ImageWidth.BACKDROP),
-            canDelete = dto.isDeletablePhoto,
-            takenAt = dto.premiereDate,
+            blurHash = dto.imageBlurHashes?.get(ImageType.PRIMARY)?.get(tag),
+            aspectRatio = photoAspectRatio(dto),
             location = dto.photoLocation,
         )
+    }
+
+    private fun photoAspectRatio(dto: BaseItemDto): Float? {
+        val width = dto.width ?: 0
+        val height = dto.height ?: 0
+        if (width > 0 && height > 0) return width.toFloat() / height
+        return dto.primaryImageAspectRatio?.toFloat()?.takeIf { it > 0f }
     }
 
     private fun image(
@@ -294,5 +307,35 @@ internal class MediaMapper(private val api: ApiClient) {
         tag: String,
         maxWidth: Int,
         index: Int? = null,
-    ) = api.imageApi.getItemImageUrl(itemId = id, imageType = type, imageIndex = index, tag = tag, maxWidth = maxWidth)
+    ) = api.imageApi.getItemImageUrl(
+        itemId = id,
+        imageType = type,
+        imageIndex = index,
+        tag = tag,
+        maxWidth = maxWidth,
+    )
+}
+
+/** One backdrop picture: the item holding it, its tag and its position among that item's backdrops. */
+internal data class BackdropRef(
+    val itemId: UUID,
+    val tag: String,
+    val index: Int,
+)
+
+/**
+ * The backdrops to show, in server order. [index] is the position in the original tag list, so skipped
+ * blank tags do not shift the others. An item without backdrops of its own uses its parent's.
+ */
+internal fun backdropRefs(
+    id: UUID,
+    tags: List<String?>?,
+    parentId: UUID?,
+    parentTags: List<String?>?,
+): List<BackdropRef> {
+    fun refs(owner: UUID, list: List<String?>?) = list.orEmpty()
+        .mapIndexedNotNull { index, tag -> tag?.takeIf { it.isNotBlank() }?.let { BackdropRef(owner, it, index) } }
+    val own = refs(id, tags)
+    if (own.isNotEmpty() || parentId == null) return own
+    return refs(parentId, parentTags)
 }

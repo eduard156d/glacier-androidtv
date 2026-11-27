@@ -7,6 +7,8 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SettingsSerializerTest {
@@ -64,10 +66,38 @@ class SettingsSerializerTest {
     }
 
     @Test
+    fun `the blurred background is off for folders stored without it`() = runTest {
+        val json = """{"profiles":{"s/u":{"folders":{"slideSeconds":10}}}}"""
+        val folders = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray()))
+            .profiles.getValue("s/u").folders
+        assertEquals(10, folders.slideSeconds)
+        assertFalse(folders.blurredBackground)
+    }
+
+    @Test
     fun `the single spotlight source of earlier versions becomes the only one chosen`() = runTest {
         val json = """{"profiles":{"s/u":{"home":{"spotlightSource":"Favorites"}}}}"""
         val home = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray())).profiles.getValue("s/u").home
         assertEquals(setOf(SpotlightSource.Favorites), home.spotlightSources)
+    }
+
+    @Test
+    fun `the off of the article language becomes the switch`() = runTest {
+        val json = """{"profiles":{"s/u":{"appearance":{"titleArticles":"off"}}}}"""
+        val appearance = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray()))
+            .profiles.getValue("s/u").appearance
+        assertEquals(false, appearance.ignoreArticles)
+        assertNull(appearance.legacyTitleArticles)
+        assertEquals(AppearanceSettings(), AppearanceSettings(legacyTitleArticles = "de").migrated())
+    }
+
+    @Test
+    fun `a stored article language is ignored`() = runTest {
+        val json = """{"profiles":{"s/u":{"appearance":{"titleArticles":"fr"}}}}"""
+        val appearance = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray()))
+            .profiles.getValue("s/u").appearance
+        assertEquals(true, appearance.ignoreArticles)
+        assertNull(appearance.legacyTitleArticles)
     }
 
     @Test
@@ -123,5 +153,23 @@ class SettingsSerializerTest {
         assertEquals(SegmentAction.Skip, policy.action(SegmentKind.Intro))
         assertEquals(SegmentAction.Skip, policy.action(SegmentKind.Recap))
         assertEquals(UpNextMode.Off, policy.upNext)
+    }
+
+    @Test
+    fun `a spotlight source of a later version is dropped, the others stay`() = runTest {
+        val json = """{"profiles":{"s/u":{"home":{"spotlightSources":["Favorites","Future","Recordings"]}}}}"""
+        val home = SettingsSerializer.readFrom(ByteArrayInputStream(json.toByteArray())).profiles.getValue("s/u").home
+        assertEquals(setOf(SpotlightSource.Favorites, SpotlightSource.Recordings), home.spotlightSources)
+    }
+
+    @Test
+    fun `the recordings source is off by default and survives a round trip`() = runTest {
+        assertEquals(false, SpotlightSource.Recordings in HomeSettings().spotlightSources)
+        val state = SettingsState(
+            mapOf("s/u" to ProfileSettings(home = HomeSettings(spotlightSources = setOf(SpotlightSource.Recordings)))),
+        )
+        val out = ByteArrayOutputStream()
+        SettingsSerializer.writeTo(state, out)
+        assertEquals(state, SettingsSerializer.readFrom(ByteArrayInputStream(out.toByteArray())))
     }
 }

@@ -4,7 +4,7 @@ import io.github.glacier_jellyfin.androidtv.core.data.Session
 import io.github.glacier_jellyfin.androidtv.core.data.SessionManager
 import io.github.glacier_jellyfin.androidtv.core.data.settings.ServerPreferencesRepository
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SubtitleMode
-import java.net.HttpURLConnection.HTTP_NO_CONTENT
+import io.github.glacier_jellyfin.androidtv.core.jellyfin.runSuspendCatching
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -51,9 +51,6 @@ class DetailRepository @Inject constructor(
     /** A title the user added to or removed from the favorites: lists of favorites are stale. */
     val favoriteChanged: SharedFlow<UUID> = _favoriteChanged.asSharedFlow()
 
-    private val _photoDeleted = MutableSharedFlow<UUID>()
-    val photoDeleted: SharedFlow<UUID> = _photoDeleted.asSharedFlow()
-
     suspend fun details(id: UUID): ItemDetails = withContext(Dispatchers.IO) {
         val session = requireSession()
         val dto = session.api.libraryApi.getItem(itemId = id, userId = session.userId).content
@@ -85,28 +82,9 @@ class DetailRepository @Inject constructor(
                 .distinct(),
             studios = dto.studios.orEmpty().mapNotNull { it.name?.takeIf(String::isNotBlank) },
             versions = versions(session, dto),
-            canDelete = dto.isDeletableVideo(),
-            backdropUrls = if (dto.type == BaseItemKind.MOVIE) mapper.movieBackdrops(dto) else emptyList(),
+            backdropUrls = mapper.backdrops(dto),
         )
     }
-
-    suspend fun deleteVideo(id: UUID) = deleteMedia(id) { it.isDeletableVideo() }
-
-    suspend fun deletePhoto(id: UUID) {
-        deleteMedia(id) { it.isDeletablePhoto }
-        _photoDeleted.emit(id)
-    }
-
-    private suspend fun deleteMedia(id: UUID, canDelete: (BaseItemDto) -> Boolean) = withContext(Dispatchers.IO) {
-        val session = requireSession()
-        val item = session.api.libraryApi.getItem(itemId = id, userId = session.userId).content
-        check(item.id == id && canDelete(item)) { "This item cannot be deleted" }
-        val response = session.api.libraryApi.deleteItem(itemId = id)
-        check(response.status == HTTP_NO_CONTENT) { "Deleting the item returned HTTP ${response.status}" }
-    }
-
-    private fun BaseItemDto.isDeletableVideo(): Boolean =
-        canDelete == true && mediaType == MediaType.VIDEO && isFolder != true
 
     /** Each file of a title with several, with its own tracks and seek previews. */
     private fun versions(session: Session, dto: BaseItemDto): List<MediaVersion> {
@@ -201,6 +179,18 @@ class DetailRepository @Inject constructor(
         }
     }
 
+    /**
+     * The library [id] is in, found through its ancestors: null when none is among them or the server fails.
+     * [fallback] is the kind to assume when the library does not name its own.
+     */
+    suspend fun library(id: UUID, fallback: LibraryKind): LibraryRef? = withContext(Dispatchers.IO) {
+        val session = requireSession()
+        runSuspendCatching { session.api.libraryApi.getAncestors(itemId = id, userId = session.userId).content }
+            .getOrNull()
+            ?.firstOrNull { it.type == BaseItemKind.COLLECTION_FOLDER }
+            ?.let { LibraryRef(it.id, it.collectionType.toLibraryKind() ?: fallback, it.name) }
+    }
+
     suspend fun seasons(seriesId: UUID): List<Season> = withContext(Dispatchers.IO) {
         val session = requireSession()
         session.api.showApi.getSeasons(seriesId = seriesId, userId = session.userId, enableUserData = true)
@@ -282,10 +272,10 @@ class DetailRepository @Inject constructor(
     }
 
     /** What the video player plays one after another: a playlist's videos, an artist's music videos, or a home video folder's. */
-    suspend fun videoQueue(sourceId: UUID): List<MediaItem> = when (details(sourceId).item.kind) {
-        ItemKind.Artist -> artistVideos(sourceId)
-        ItemKind.Playlist -> playlistVideos(sourceId)
-        else -> folders.videos(sourceId)
+    suspend fun videoQueue(sourceId: UUID): VideoQueue = when (details(sourceId).item.kind) {
+        ItemKind.Artist -> VideoQueue(artistVideos(sourceId))
+        ItemKind.Playlist -> VideoQueue(playlistVideos(sourceId))
+        else -> VideoQueue(folders.videos(sourceId), upNextPrompt = false)
     }
 
     /** [id]'s neighbours in [queue] (see [videoQueue]). */

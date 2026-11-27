@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -100,9 +101,12 @@ object CardSize {
  * times at once (the same cover down a music queue) until the first one is cached.
  */
 @Composable
-fun Artwork(url: String?, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
-    val accent = LocalAccent.current
-    Box(modifier.background(Brush.linearGradient(listOf(accent.deep.copy(alpha = 0.45f), GlacierColors.Deep)))) {
+fun Artwork(
+    url: String?,
+    modifier: Modifier = Modifier,
+    fill: Boolean = true,
+) {
+    Box(if (fill) modifier.artworkFill() else modifier) {
         if (url != null) {
             var attempt by remember(url) { mutableIntStateOf(0) }
             var failed by remember(url) { mutableStateOf(false) }
@@ -117,7 +121,7 @@ fun Artwork(url: String?, modifier: Modifier = Modifier, contentScale: ContentSc
                 AsyncImage(
                     model = url,
                     contentDescription = null,
-                    contentScale = contentScale,
+                    contentScale = ContentScale.Crop,
                     onError = { failed = true },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -126,12 +130,41 @@ fun Artwork(url: String?, modifier: Modifier = Modifier, contentScale: ContentSc
     }
 }
 
+/** The accent-tinted ground of [Artwork]; a caller stacking several layers draws it once and passes `fill = false`. */
+@Composable
+internal fun Modifier.artworkFill(): Modifier {
+    val accent = LocalAccent.current
+    return background(Brush.linearGradient(listOf(accent.deep.copy(alpha = 0.45f), GlacierColors.Deep)))
+}
+
 private const val ARTWORK_RETRIES = 1
 private const val ARTWORK_RETRY_DELAY_MS = 800L
+
+/** A dark pill over a picture: the play sign, and the length when [text] is given. */
+@Composable
+fun VideoBadge(modifier: Modifier = Modifier, text: String? = null) {
+    Row(
+        modifier
+            .clip(PillShape)
+            .background(Color(0xB305090F))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            GlacierIcons.Play,
+            contentDescription = null,
+            tint = GlacierColors.Ice,
+            modifier = Modifier.size(12.dp),
+        )
+        if (text != null) Text(text, style = GlacierText.body(14), color = GlacierColors.Ice)
+    }
+}
 
 /**
  * "Continue watching": 16:9 still, progress bar, play button on focus, title and time left.
  * [imageHeight] makes the still taller at the same width, such as 4:3 for home videos.
+ * [videoBadge] marks a video with the play sign in the top end corner, where the hold-OK mark would sit.
  */
 @Composable
 fun ContinueCard(
@@ -144,6 +177,7 @@ fun ContinueCard(
     locked: Boolean = false,
     imageHeight: Int? = null,
     onLongClick: (() -> Unit)? = null,
+    videoBadge: Boolean = false,
 ) {
     val accent = LocalAccent.current.main
     val shape = RoundedCornerShape(GlacierShapes.RadiusMd)
@@ -168,8 +202,8 @@ fun ContinueCard(
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD905090F)))),
             )
             if (locked) LockBadge(Modifier.align(Alignment.TopStart))
-            // With options, the mark in the corner says that holding OK opens them.
-            if (onLongClick != null) {
+            // With options, the mark in the corner says that holding OK opens them; unfocused, a video keeps its badge.
+            if (onLongClick != null && (focused || !videoBadge)) {
                 HoldOkMark(
                     focused,
                     accent,
@@ -177,6 +211,8 @@ fun ContinueCard(
                     size = 34,
                     onPicture = true,
                 )
+            } else if (videoBadge) {
+                VideoBadge(Modifier.align(Alignment.TopEnd).padding(10.dp))
             }
             if (progress != null) {
                 ProgressBar(

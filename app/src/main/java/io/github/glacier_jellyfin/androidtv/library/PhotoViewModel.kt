@@ -8,20 +8,19 @@ import androidx.navigation.toRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.glacier_jellyfin.androidtv.R
-import io.github.glacier_jellyfin.androidtv.core.data.media.DetailRepository
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderContent
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderMedia
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderRepository
-import io.github.glacier_jellyfin.androidtv.core.data.media.MediaPhoto
+import io.github.glacier_jellyfin.androidtv.core.data.media.PhotoDetails
 import io.github.glacier_jellyfin.androidtv.core.data.media.PhotoLocation
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackRepository
+import io.github.glacier_jellyfin.androidtv.core.data.playback.TranscodeStatus
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsRepository
 import io.github.glacier_jellyfin.androidtv.core.jellyfin.runSuspendCatching
 import io.github.glacier_jellyfin.androidtv.core.log.Log
 import io.github.glacier_jellyfin.androidtv.navigation.PhotoRoute
 import io.github.glacier_jellyfin.androidtv.navigation.PlayerRoute
 import io.github.glacier_jellyfin.androidtv.ui.UiEvent
-import java.time.LocalDateTime
 import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
@@ -29,14 +28,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -51,32 +51,26 @@ data class PhotoState(
     val forward: Boolean = true,
     /** How long the slideshow shows each photo (Settings). */
     val slideMs: Long = 5_000,
-    val deleteTarget: MediaPhoto? = null,
-    val deleting: Boolean = false,
-    val modifiedPhoto: Pair<UUID, LocalDateTime>? = null,
+    /** The options or the delete confirmation over the viewer, null while neither is open. */
+    val menu: PhotoMenu? = null,
+    /** The last photo or video was deleted: the screen goes back. */
+    val closed: Boolean = false,
     val resolvedPhoto: Pair<UUID, PhotoPlace>? = null,
 ) {
     val current: FolderMedia? get() = media.getOrNull(index)
     val photoPlace: PhotoPlace? get() = resolvedPhoto?.takeIf { it.first == current?.id }?.second
+}
 
-    val captionDate: LocalDateTime?
-        get() {
-            val item = current as? FolderMedia.Photo ?: return current?.date
-            val modifiedAt = modifiedPhoto?.takeIf { it.first == item.id }?.second
-            return item.photo.takenAt ?: listOfNotNull(item.date, modifiedAt).minOrNull()
-        }
+/** What is open over the viewer: the options of the current item, or the question before deleting it. */
+enum class PhotoMenu { Options, ConfirmDelete }
 
-    /** Keep the next item selected, or go back one when the deleted photo was last. */
-    internal fun afterPhotoDeleted(id: UUID): PhotoState {
-        val remaining = media.filterNot { it.id == id }
-        return copy(
-            media = remaining,
-            index = index.coerceAtMost(remaining.lastIndex.coerceAtLeast(0)),
-            forward = index < remaining.size,
-            deleteTarget = null,
-            deleting = false,
-        )
-    }
+/** The details panel of one photo or video: [details] once loaded, [failed] when they could not be. */
+data class PhotoInfoState(
+    val item: FolderMedia,
+    val details: PhotoDetails? = null,
+    val failed: Boolean = false,
+) {
+    val loading: Boolean get() = details == null && !failed
 }
 
 @HiltViewModel
@@ -84,20 +78,36 @@ class PhotoViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     @param:ApplicationContext context: Context,
     private val repository: FolderRepository,
-    private val details: DetailRepository,
     private val settings: SettingsRepository,
     private val geocoder: PhotoGeocoder,
     playback: PlaybackRepository,
+    private val memory: BrowseMemory,
 ) : ViewModel() {
     private val route = savedStateHandle.toRoute<PhotoRoute>()
 
     private val _state = MutableStateFlow(PhotoState())
     val state: StateFlow<PhotoState> = _state.asStateFlow()
-    private val detailedLocation = MutableStateFlow<Pair<UUID, PhotoLocation>?>(null)
 
     /** The current video, playing right here. */
-    private val inline = InlineVideo(context, playback, viewModelScope, onEnded = ::onVideoEnded)
+    private val inline = InlineVideo(
+        context,
+        playback,
+        viewModelScope,
+        onEnded = ::onVideoEnded,
+        blurredBackground = { settings.settings.value.folders.blurredBackground },
+    )
     val video: StateFlow<InlineVideoState> = inline.state
+
+    /** Whether photos and portrait videos get a blurred backdrop (Settings). */
+    val blurredBackground: StateFlow<Boolean> = settings.settings
+        .map { it.folders.blurredBackground }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, settings.settings.value.folders.blurredBackground)
+
+    /** The open details panel, null while it is closed; it stays with the item it was opened for. */
+    private val _info = MutableStateFlow<PhotoInfoState?>(null)
+    val info: StateFlow<PhotoInfoState?> = _info.asStateFlow()
+    private val detailedLocation = MutableStateFlow<Pair<UUID, PhotoLocation>?>(null)
+    private var infoJob: Job? = null
 
     private val _events = Channel<UiEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
@@ -109,37 +119,27 @@ class PhotoViewModel @Inject constructor(
 
     init {
         load()
-        viewModelScope.launch {
-            state.map { it.current as? FolderMedia.Photo }.distinctUntilChangedBy { it?.id }.collectLatest { item ->
-                if (item == null || item.photo.takenAt != null) return@collectLatest
-                val modifiedAt = runSuspendCatching { repository.photoModifiedAt(item.id) }.getOrNull()
-                if (modifiedAt != null) _state.update { it.copy(modifiedPhoto = item.id to modifiedAt) }
-            }
-        }
-        viewModelScope.launch {
-            val photos = state.map { (it.current as? FolderMedia.Photo)?.photo to it.slideshow }.distinctUntilChanged()
-            val locations = combine(photos, detailedLocation) { (photo, slideshow), detail ->
-                photo?.let {
-                    val listed = it.location
-                    val fromDetails = detail?.takeIf { entry -> entry.first == it.id }?.second
-                    val location = if (listed.names.isEmpty() && listed.coordinates == null) {
-                        fromDetails ?: listed
-                    } else {
-                        listed
-                    }
-                    Triple(it.id, location, !slideshow)
+        val photos = state.map { (it.current as? FolderMedia.Photo)?.photo to it.slideshow }.distinctUntilChanged()
+        val locations = combine(photos, detailedLocation) { (photo, slideshow), detail ->
+            photo?.let {
+                val listed = it.location
+                val lookedUp = detail?.takeIf { entry -> entry.first == it.id }?.second
+                val location = when {
+                    listed.name != null -> listed
+                    lookedUp?.name != null -> lookedUp
+                    listed.coordinates != null -> listed
+                    else -> lookedUp ?: listed
                 }
-            }.distinctUntilChanged()
+                Triple(it.id, location, !slideshow)
+            }
+        }.distinctUntilChanged()
+        viewModelScope.launch {
             combine(locations, settings.photoGeocoding) { location, options -> location to options }
                 .collectLatest { (location, options) ->
                     _state.update { it.copy(resolvedPhoto = null) }
                     val (id, source, interactive) = location ?: return@collectLatest
-                    val place = geocoder.resolve(
-                        source,
-                        options,
-                        Locale.getDefault(),
-                        interactive,
-                    ) ?: return@collectLatest
+                    val place = geocoder.resolve(source, options, Locale.getDefault(), interactive)
+                        ?: return@collectLatest
                     _state.update { if (it.current?.id == id) it.copy(resolvedPhoto = id to place) else it }
                 }
         }
@@ -154,8 +154,10 @@ class PhotoViewModel @Inject constructor(
                     val folders = settings.settings.value.folders
                     val media = mediaSections(FolderContent(null, emptyList(), all), folders).flatMap { it.media }
                     val start = media.indexOfFirst { it.id.toString() == route.photoId }.coerceAtLeast(0)
-                    _state.update { it.copy(loading = false, media = media, index = start) }
-                    showCurrent()
+                    _state.update {
+                        it.copy(loading = false, media = media, index = start, slideshow = route.slideshow)
+                    }
+                    showCurrent(route.startMs ?: 0L)
                 }
                 .onFailure { error ->
                     Log.w(TAG, "Loading the photos failed", error)
@@ -164,74 +166,121 @@ class PhotoViewModel @Inject constructor(
         }
     }
 
-    /** Browse by one item; during a slideshow the new photo's time starts anew. */
-    fun browseBy(offset: Int) {
-        if (step(offset)) showCurrent()
+    /** The next photo or video; during a slideshow a photo's time starts anew. */
+    fun next() {
+        if (step(1)) showCurrent()
     }
 
-    /** The full player takes over an inline video at its current position. */
-    fun openVideoPlayer() {
-        val current = _state.value.current as? FolderMedia.Video ?: return
-        val position = inline.positionMs
-        handedOver = current.id to position
-        inline.release()
-        viewModelScope.launch {
-            _events.send(UiEvent.Navigate(PlayerRoute(current.id.toString(), startMs = position)))
+    fun previous() {
+        if (step(-1)) showCurrent()
+    }
+
+    /**
+     * OK: during a slideshow it stops it and stays here (a video pauses); otherwise on a video the full player takes
+     * over where it is, and on a photo the slideshow starts.
+     */
+    fun select() {
+        val current = _state.value.current ?: return
+        if (_state.value.slideshow) {
+            stopSlideshow()
+            if (current is FolderMedia.Video) inline.pause()
+        } else if (current is FolderMedia.Video) {
+            val position = inline.positionMs
+            handedOver = current.id to position
+            inline.release()
+            viewModelScope.launch {
+                _events.send(
+                    UiEvent.Navigate(PlayerRoute(current.id.toString(), queueOf = route.folderId, startMs = position)),
+                )
+            }
+        } else {
+            _state.update { it.copy(slideshow = true) }
+            showCurrent()
         }
     }
 
-    /** Play and pause: the video here, or the slideshow on a photo. */
-    fun playPause() {
-        val state = _state.value
-        if (state.deleteTarget != null) return
-        when (state.current) {
-            is FolderMedia.Video -> inline.togglePlay()
-
-            is FolderMedia.Photo -> if (state.slideshow) {
+    /**
+     * Opens or closes ([menu] null) what is over the viewer. The options end a slideshow, and a video pauses
+     * behind them or behind the delete question; closing without action leaves it paused (OK or play/pause
+     * resumes). Deleting is only asked for what the server lets this user delete.
+     */
+    fun showMenu(menu: PhotoMenu?) {
+        val current = _state.value.current
+        when (menu) {
+            PhotoMenu.Options -> {
+                if (current == null) return
                 stopSlideshow()
-            } else {
-                _state.update { it.copy(slideshow = true) }
-                showCurrent()
+                if (current is FolderMedia.Video) inline.pause()
+            }
+
+            PhotoMenu.ConfirmDelete -> {
+                if (current?.canDelete != true) return
+                if (current is FolderMedia.Video) inline.pause()
             }
 
             null -> Unit
         }
+        _state.update { it.copy(menu = menu) }
     }
 
-    suspend fun photoDetails(id: UUID) = repository.photoDetails(id).also { details ->
-        if (state.value.current?.id == id) detailedLocation.value = id to details.location
-    }
-
-    fun openDelete() {
+    /**
+     * Deletes the current item. It leaves the list at once and the viewer stays at the same place, which is
+     * the next item; without any left the screen goes back. When the server refuses it comes back.
+     */
+    fun deleteCurrent() {
         val state = _state.value
-        val photo = (state.current as? FolderMedia.Photo)?.photo ?: return
-        if (!photo.canDelete || state.deleteTarget != null) return
-        stopSlideshow()
-        _state.update { it.copy(deleteTarget = photo) }
-    }
-
-    fun closeDelete() {
-        _state.update { if (it.deleting) it else it.copy(deleteTarget = null) }
-    }
-
-    fun deletePhoto() {
-        val state = _state.value
-        val photo = state.deleteTarget ?: return
-        if (state.deleting || state.current?.id != photo.id) return
-        _state.update { it.copy(deleting = true) }
+        val item = state.current?.takeIf { it.canDelete } ?: return
+        val at = state.index
+        val rest = Browse(state.media, state.index).without(at)
+        if (item is FolderMedia.Video) inline.release()
+        _state.update {
+            it.copy(menu = null, media = rest.items, index = rest.index, closed = rest.items.isEmpty())
+        }
+        showCurrent()
         viewModelScope.launch {
-            runSuspendCatching { details.deletePhoto(photo.id) }
-                .onSuccess {
-                    _state.update { it.afterPhotoDeleted(photo.id) }
-                    showCurrent()
-                    _events.send(UiEvent.Toast(R.string.photo_deleted, listOf(photo.name)))
-                }
+            runSuspendCatching { repository.delete(item.id) }
+                .onSuccess { _events.send(UiEvent.Toast(R.string.photo_deleted, listOf(item.name))) }
                 .onFailure { error ->
-                    Log.w(TAG, "Deleting the photo failed", error)
-                    _state.update { it.copy(deleteTarget = null, deleting = false) }
+                    Log.w(TAG, "Deleting ${item.id} failed", error)
+                    _state.update {
+                        val back = Browse(it.media, it.index).with(item, at)
+                        it.copy(media = back.items, index = back.index)
+                    }
                     _events.send(UiEvent.Toast(R.string.photo_delete_failed))
                 }
         }
+    }
+
+    /** Opens the details of the current item and ends a slideshow; the server is asked only now. */
+    fun openDetails() {
+        val item = _state.value.current ?: return
+        stopSlideshow()
+        _info.value = PhotoInfoState(item)
+        infoJob?.cancel()
+        infoJob = viewModelScope.launch {
+            runSuspendCatching { repository.photoDetails(item.id) }
+                .onSuccess { details ->
+                    if (item is FolderMedia.Photo) detailedLocation.value = item.id to details.location
+                    _info.update { it?.copy(details = details) }
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "Loading the details of ${item.id} failed", error)
+                    _info.update { it?.copy(failed = true) }
+                }
+        }
+    }
+
+    /** The transcoder's state for the video playing here, for the details; null when it does not transcode. */
+    suspend fun transcodeStatus(): TranscodeStatus? = inline.transcodeStatus()
+
+    fun closeDetails() {
+        infoJob?.cancel()
+        _info.value = null
+    }
+
+    /** Play and pause: the video here, or the slideshow on a photo. */
+    fun playPause() {
+        if (_state.value.current is FolderMedia.Video) inline.togglePlay() else select()
     }
 
     /** Back on screen from the full player: the slideshow goes on with the next one, or the video plays on here. */
@@ -254,16 +303,18 @@ class PhotoViewModel @Inject constructor(
     private fun step(by: Int): Boolean {
         val current = _state.value
         val target = current.index + by
-        if (current.deleteTarget != null || target !in current.media.indices) return false
+        if (target !in current.media.indices) return false
         _state.update { it.copy(index = target, forward = by > 0) }
         return true
     }
 
     /** A photo stays for the slideshow's time; a video plays here to its end. */
-    private fun showCurrent() {
+    private fun showCurrent(startMs: Long = 0L) {
         slideshow?.cancel()
+        // The folder's grid focuses this item's card when it is shown again.
+        _state.value.current?.let { memory.photoViewed(UUID.fromString(route.folderId), it.id) }
         when (val current = _state.value.current) {
-            is FolderMedia.Video -> inline.open(current.id)
+            is FolderMedia.Video -> inline.open(current.id, startMs = startMs)
 
             is FolderMedia.Photo -> {
                 inline.release()
@@ -292,7 +343,7 @@ class PhotoViewModel @Inject constructor(
         if (_state.value.slideshow) advance()
     }
 
-    fun stopSlideshow() {
+    private fun stopSlideshow() {
         slideshow?.cancel()
         slideshow = null
         _state.update { it.copy(slideshow = false) }

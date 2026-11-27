@@ -97,6 +97,15 @@ data class StreamRequest(
     val audio: TitleAudio? = null,
     /** Degrees the picture is turned for display, from the video stream; null or 0 when upright. */
     val videoRotation: Int? = null,
+    /**
+     * Fill the black bars around a portrait video with a blurred copy of it, made in the effects pipeline from the one
+     * decode: the frame comes out 16:9 with the sharp video in the middle. Needs [videoWidth] and [videoHeight]; the
+     * caller leaves it off for HDR, which the pipeline would flatten.
+     */
+    val blurredBackground: Boolean = false,
+    /** The picture size of the video stream before [videoRotation]; null when not known. */
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
 )
 
 /** How this device plays what it cannot take as it is, decided by the app from its capabilities and settings. */
@@ -962,7 +971,17 @@ object GlacierPlayer {
         // Media3 only hands the rotation to the decoder, and the compositor of some TVs ignores it on a SurfaceView. With
         // the effects pipeline on (even with no effect) the frames are turned by the app and come out upright. Upright
         // videos stay on the direct path.
-        if (VideoRotation.appliedByApp(request.videoRotation)) {
+        val blur = if (request.blurredBackground) {
+            VideoRotation.portraitAspect(request.videoWidth, request.videoHeight, request.videoRotation)
+        } else {
+            null
+        }
+        if (blur != null) {
+            // A 16:9 frame of the video's height: the video whole in the middle, over a dimmed, blurred copy of itself that
+            // is cropped to fill the frame (see BlurredBackdropEffect), all from the one decode.
+            player.setVideoEffects(listOf(BlurredBackdropEffect()))
+            Log.i("Player", "Portrait video: blurred background from the same decode")
+        } else if (VideoRotation.appliedByApp(request.videoRotation)) {
             player.setVideoEffects(emptyList())
             Log.i("Player", "Rotated video (${VideoRotation.normalized(request.videoRotation)}°): app applies rotation")
         }

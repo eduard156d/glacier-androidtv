@@ -65,7 +65,7 @@ class PhotoGeocoder @Inject constructor(
         locale: Locale,
         interactive: Boolean,
     ): PhotoPlace? {
-        location.names.joinToString(" · ").takeIf(String::isNotBlank)?.let { return PhotoPlace(it) }
+        location.name?.let { return PhotoPlace(it) }
         val point = location.coordinates ?: return null
         return resolvePhotoPlace(settings) { lookup ->
             val request = Request(lookup, point, locale)

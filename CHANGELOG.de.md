@@ -7,17 +7,37 @@ these subsections in this order: `### Neu`, `### Verbessert`, `### Behoben`,
 
 ## [Unreleased]
 
+### Neu
+- Eine Reihe Aufnahmen auf der Startseite und Aufnahmen als wählbare Quelle für das Spotlight
+- Eine Reihe Aufnahmen auf der Favoritenseite
+- Foto- und Videodetails in der Fotoansicht. Mit Unten oder der Info-Taste zeigt der erste Reiter, wann und wo es entstand und in welchem Ordner es liegt, der Reiter Technik die Kamera, die Belichtung und die Datei. Ein Video zeigt dieselben Reiter Technik und Server wie der Player. OK halten oder Menü drücken öffnet die Optionen, mit denen sich ein Foto oder Video nach einer Rückfrage vom Server löschen lässt, wenn der Server es erlaubt. Das geht auch, indem du in der Ordneransicht OK auf einem Foto oder Video hältst (#43). Eine Einstellung füllt die schwarzen Ränder um Fotos und Hochkant-Videos mit einer unscharfen Kopie
+- Detailseiten von Filmen und Serien mit mehreren Hintergrundbildern zeigen sie nacheinander
+
 ### Verbessert
+- Die Zeile über einem Titel ist jetzt ein Pfad. Seine Ebenen öffnen die Bibliothek, die Serie, die Staffel oder einen übergeordneten Ordner
 - Specials, die eine Staffel zwischen ihren Folgen zeigt, tragen ein Abzeichen „Special“
 - Abzeichen auf Folgenbildern und Plakaten haben einen dunkleren Hintergrund und bleiben auf hellen Bildern lesbar
 - Die Folgendetails nennen ein Special „Specials“ statt Staffel 0
 - Die Tonspur- und Untertitelwahl während der Wiedergabe zeigt unter dem Titel kein „Gilt ab sofort“ mehr
 - Nach Jahr sortiert folgen Titel desselben Jahres ihrem Erscheinungsdatum statt dem Alphabet
 - Wer nach oben oder unten in eine Reihe wechselt, landet jetzt zuerst auf ihrer ersten Karte. Danach merkt sich die Reihe die Karte, auf der du sie verlassen hast, auch nach der Rückkehr von einer Detailseite
+- A bis Z ignoriert Artikel wie „The“, „Der“ oder „La“ in der Sprache des jeweiligen Titels. Die Sprache kommt von deinem Jellyfin-Server. Unter Einstellungen › Darstellung › Artikel ignorieren schaltest du es aus
+- Beim Blättern erscheinen Name und Datum des nächsten Fotos sofort, dazu eine unscharfe Vorschau mit Ladeanzeige, bis das Foto scharf ist. Die nächsten Fotos laden vorab, so wartet das Blättern seltener. Ein Foto, das nicht lädt, lässt sich mit OK erneut versuchen (#43)
+- Die Fotoansicht zeigt ihre Tasten beim Öffnen als Tastenkappen in der unteren Ecke, mit Oben erscheinen sie wieder (#43)
+- Videos in einem Fotoordner tragen ein Wiedergabezeichen, und Clips unter einer Minute zeigen ihre Länge in Sekunden (#43)
+- Nach einem Wechsel auf einen kleineren Stream kehrt die Wiedergabe viel früher zur vollen Qualität zurück: nach etwa 40 Sekunden statt nach mehreren Minuten, mit weniger Wartezeit vor dem Wechsel
+- Das Infofenster zeigt, wann die nächste Prüfung der Leitung läuft, solange ein kleinerer Stream spielt
+- Heimvideos ohne Bild auf dem Server zeigen im Raster, in der Galerie und in der Fotoansicht ein Standbild aus dem Video. Hochkant-Videos und hochkant gefilmte Handyvideos stehen dabei richtig herum
 
 ### Behoben
+- Fotos und Videos zeigen die Aufnahmezeit in der Zeitzone des Fernsehers. Vorher lag sie um den Abstand zu UTC daneben (#43)
 - Die Specials-Staffel zeigt ihre Folgen in der richtigen Reihenfolge statt nach Titel
 - Gedrehte Heimvideos stehen jetzt auch auf Fernsehern aufrecht, die die Drehung ignorierten (#43)
+- Live-TV-Aufnahmen erscheinen nicht mehr unter Filmen und Serien. Sie bleiben unter Live-TV > Aufnahmen und die Suche findet sie weiterhin
+- YouTube-Trailer bleiben nicht mehr auf dem Ladebildschirm hängen und schlagen nicht mehr fehl, obwohl sie schon laufen
+- Die Wiedergabe wechselt wegen eines einzelnen langsamen Verbindungstests nicht mehr auf einen kleineren Stream, solange sie mithält. Der Test teilt sich die Leitung mit dem Video, daher wird er wiederholt und zuerst mit der Geschwindigkeit des Players abgeglichen
+- Eine Folge startet nicht mehr mit Untertiteln (oder Ton), die der Server für eine frühere Folge gewählt hat, etwa japanischen Untertiteln. Die nächste Folge übernimmt nur Spuren, die du selbst gewählt hast
+- Heimvideos zeigen kurz vor dem Ende keinen Countdown „Nächste Folge“ mehr. Das nächste Video des Ordners startet weiterhin, wenn eines endet
 
 ## [0.10.1] - 2026-11-18
 

@@ -42,12 +42,24 @@ data class ItemDetails(
     val studios: List<String> = emptyList(),
     /** The title's files when it has several, in the server's order; empty for a single file. */
     val versions: List<MediaVersion> = emptyList(),
-    val canDelete: Boolean = false,
-    /** The film's own backdrops, in the server's order. */
+    /** All backdrops in server order (the first is [MediaItem.backdropUrl]); empty without any. */
     val backdropUrls: List<String> = emptyList(),
 )
 
+/**
+ * The library a title is in, to open it from the page's breadcrumb. Without [id], every library of [kind]
+ * (music pages that are in no one library, such as an artist's).
+ */
+data class LibraryRef(
+    val id: UUID?,
+    val kind: LibraryKind,
+    val name: String?,
+)
+
 data class EpisodeNeighbours(val previous: MediaItem?, val next: MediaItem?)
+
+/** What the player plays one after another; [upNextPrompt] is false when no "next up" countdown is shown (home videos). */
+data class VideoQueue(val items: List<MediaItem>, val upNextPrompt: Boolean = true)
 
 data class Chapter(
     val name: String,

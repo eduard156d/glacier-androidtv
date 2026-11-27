@@ -1,13 +1,15 @@
 package io.github.glacier_jellyfin.androidtv.library
 
-import android.content.Context
-import android.graphics.Bitmap
 import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,43 +17,55 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalLocale
@@ -59,51 +73,74 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.compose.ContentFrame
+import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
-import coil3.BitmapImage
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
+import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
-import coil3.request.allowHardware
+import coil3.size.Size
 import io.github.glacier_jellyfin.androidtv.R
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderMedia
+import io.github.glacier_jellyfin.androidtv.core.data.media.MediaItem
 import io.github.glacier_jellyfin.androidtv.core.data.media.MediaPhoto
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierColors
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierIcons
 import io.github.glacier_jellyfin.androidtv.core.designsystem.GlacierText
+import io.github.glacier_jellyfin.androidtv.core.designsystem.KeyCap
+import io.github.glacier_jellyfin.androidtv.core.designsystem.KeyHint
 import io.github.glacier_jellyfin.androidtv.core.designsystem.LeftToRight
 import io.github.glacier_jellyfin.androidtv.core.designsystem.LocalAccent
 import io.github.glacier_jellyfin.androidtv.core.designsystem.LocalReduceMotion
+import io.github.glacier_jellyfin.androidtv.core.designsystem.OptionRow
+import io.github.glacier_jellyfin.androidtv.core.designsystem.OptionsPanel
 import io.github.glacier_jellyfin.androidtv.core.designsystem.PillButton
 import io.github.glacier_jellyfin.androidtv.core.designsystem.PillShape
 import io.github.glacier_jellyfin.androidtv.core.designsystem.SpinningDiamond
 import io.github.glacier_jellyfin.androidtv.core.designsystem.blockKeysWhile
 import io.github.glacier_jellyfin.androidtv.core.designsystem.endKey
 import io.github.glacier_jellyfin.androidtv.core.designsystem.startKey
+import io.github.glacier_jellyfin.androidtv.core.log.Log
 import io.github.glacier_jellyfin.androidtv.player.ControlButton
+import io.github.glacier_jellyfin.androidtv.ui.BlurHashCache
 import io.github.glacier_jellyfin.androidtv.ui.CollectEvents
-import io.github.glacier_jellyfin.androidtv.ui.DeleteMediaDialog
+import io.github.glacier_jellyfin.androidtv.ui.ConfirmDeleteDialog
 import io.github.glacier_jellyfin.androidtv.ui.PageEdge
 import io.github.glacier_jellyfin.androidtv.ui.UiEvent
+import io.github.glacier_jellyfin.androidtv.ui.blurHashComponents
+import io.github.glacier_jellyfin.androidtv.ui.blurHashSize
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * A folder's photos and videos full screen, in the folder page's order. A video plays right here.
- * Left and right browse. OK on a photo opens its controls, including the slideshow; OK on a video opens
- * the full player where it is, and Back from there comes back here. The photo's location, the date and the
- * position show for a moment after each change. A line along the bottom edge shows how far a
- * video has played or a photo's slideshow time.
+ * Left and right browse; OK on a photo starts a slideshow, which plays the videos it comes to, and OK
+ * during a slideshow stops it (a video then pauses here); OK on a video outside a slideshow opens the full
+ * player where it is, and Back from there comes back here. Down opens the controls for either type of media.
+ * The Info and Menu buttons also work as remote keys. Back closes a panel first, then the controls.
+ * Holding OK opens the existing options, including deletion with confirmation when the server allows it.
+ * A deleted item leaves at once and the viewer stays at the same place, and the screen goes back when none is left.
+ * The location and date stay visible without a scrim until the controls open. The keys show as key caps for a
+ * few seconds when the viewer opens and again on Up. A line along the
+ * bottom edge shows how far a video has played, or a photo's time in the slideshow. Browsing to a photo that is not
+ * loaded yet shows its BlurHash with a loader until the photo is sharp (its blurred thumbnail when it has none). The
+ * next photos in the browsing direction, and the one behind, load ahead. With "Blurred
+ * background" on (Settings) a photo has a blurred, dimmed copy of itself behind it instead of black bars; a portrait
+ * video gets that from the player, which blurs the same decode into the frame.
  */
+@OptIn(UnstableApi::class) // ContentFrame
 @Composable
 fun PhotoScreen(
     onNavigate: (UiEvent.Navigate) -> Unit,
@@ -112,38 +149,37 @@ fun PhotoScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val video by viewModel.video.collectAsStateWithLifecycle()
+    val info by viewModel.info.collectAsStateWithLifecycle()
+    val blurred by viewModel.blurredBackground.collectAsStateWithLifecycle()
     CollectEvents(viewModel.events, onNavigate)
+    // The last photo or video was deleted: nothing is left to show.
+    LaunchedEffect(state.closed) { if (state.closed) onBack() }
     // Back from the full player the slideshow goes on; leaving, nothing plays on behind.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onResume() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onStop() }
     val reduceMotion = LocalReduceMotion.current
     val focus = remember { FocusRequester() }
-    val direction = LocalLayoutDirection.current
-    val slideshowFocus = remember { FocusRequester() }
+    val playFocus = remember { FocusRequester() }
     val infoFocus = remember { FocusRequester() }
-    val current = state.current
-    val photo = current as? FolderMedia.Photo
-    val caption = photo?.let {
-        it.photo.location.names.joinToString(" · ").takeIf(String::isNotBlank) ?: state.photoPlace?.name
-    }
-    val captionDate = longTakenText(state.captionDate)
-    val deleteTarget = state.deleteTarget
+    val menuFocus = remember { FocusRequester() }
+    var restoreFocus by remember { mutableStateOf(playFocus) }
     var controlsOpen by remember { mutableStateOf(false) }
-    var infoOpen by remember { mutableStateOf(false) }
-    var controlsFocus by remember { mutableStateOf(slideshowFocus) }
-    val modalOpen = deleteTarget != null || infoOpen
-    val controlsVisible = controlsOpen && photo != null && !modalOpen
+    val modalOpen = info != null || state.menu != null
+    val item = state.current
+    val controlsVisible = controlsOpen && item != null && !modalOpen
+    val listedLocation = (item as? FolderMedia.Photo)?.photo?.location
+    val location = listedLocation?.name ?: state.photoPlace?.name
+        ?: listedLocation?.let { locationText(it.latitude, it.longitude) }
+    val date = longTakenText(item?.date)
+    val attributed = listedLocation?.name == null && state.photoPlace?.fromOpenStreetMap == true
+    val direction = LocalLayoutDirection.current
     BackHandler(enabled = controlsVisible) { controlsOpen = false }
-    LaunchedEffect(photo == null) { if (photo == null) controlsOpen = false }
     LaunchedEffect(controlsVisible, modalOpen) {
         if (!modalOpen) {
             withFrameNanos { }
-            val target = if (controlsVisible) controlsFocus else focus
-            runCatching { target.requestFocus() }
+            runCatching { (if (controlsVisible) restoreFocus else focus).requestFocus() }
         }
     }
-    val empty = !state.loading && !state.failed && state.media.isEmpty()
-    LaunchedEffect(empty) { if (empty) onBack() }
     // A slideshow or a video runs on its own: the TV must not dim or start its screensaver meanwhile.
     val view = LocalView.current
     val running = state.slideshow || video.player != null
@@ -151,21 +187,49 @@ fun PhotoScreen(
         view.keepScreenOn = running
         onDispose { view.keepScreenOn = false }
     }
+    val context = LocalContext.current
+    val shownIndex = state.index
+    // Holding OK opened the options: the release that follows must not also be an OK.
+    var heldOk by remember { mutableStateOf(false) }
+    // The photo whose picture failed to load, so OK retries it; and the last photo that was sharp, which stays dimmed
+    // behind a photo that has neither its thumbnail nor itself yet.
+    var failedId by remember { mutableStateOf<UUID?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
+    var lastSharp by remember { mutableStateOf<MediaPhoto?>(null) }
     var overlayKey by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf(true) }
-    LaunchedEffect(overlayKey, state.index, state.slideshow) {
+    LaunchedEffect(overlayKey, item?.id, state.slideshow) {
         overlay = true
         delay(if (state.slideshow) SLIDESHOW_OVERLAY_MS else OVERLAY_MS)
         overlay = false
     }
-    // The neighbours load ahead, so browsing does not wait for them.
-    val context = LocalContext.current
+    // The key caps show when the viewer opens and again on Up.
+    var hintKey by remember { mutableIntStateOf(0) }
+    var hints by remember { mutableStateOf(true) }
+    // The time counts from the first photo or video on screen, not from the loader before it.
+    val hasItem = item != null
+    LaunchedEffect(hintKey, hasItem) {
+        if (!hasItem) return@LaunchedEffect
+        hints = true
+        delay(HINTS_MS)
+        hints = false
+    }
+    // The neighbours load ahead, most in the browsing direction, so browsing does not wait for them: the photo, and
+    // its placeholder (decoded now, or the thumbnail when it has no usable BlurHash).
     LaunchedEffect(state.media, state.index) {
         val loader = SingletonImageLoader.get(context)
-        listOf(state.index + 1, state.index - 1)
-            .mapNotNull { state.media.getOrNull(it) as? FolderMedia.Photo }.forEach {
-                loader.enqueue(photoImageRequest(context, it.photo.fullUrl))
+        val step = if (state.forward) 1 else -1
+        val indices = (1..PRELOAD_AHEAD).map { state.index + step * it } +
+            (1..PRELOAD_BEHIND).map { state.index - step * it }
+        indices.mapNotNull { state.media.getOrNull(it) as? FolderMedia.Photo }.forEach {
+            val photo = it.photo
+            loader.enqueue(ImageRequest.Builder(context).data(photo.fullUrl).size(Size.ORIGINAL).build())
+            if (!photo.hasPlaceholder()) {
+                loader.enqueue(ImageRequest.Builder(context).data(photo.thumbUrl).build())
+            } else {
+                withContext(Dispatchers.Default) { photo.placeholder() }
             }
+        }
     }
 
     Box(
@@ -177,26 +241,79 @@ fun PhotoScreen(
             .blockKeysWhile(state.loading && state.current == null)
             .onPreviewKeyEvent { event ->
                 // Without photos the keys belong to the retry button.
-                if (current == null || modalOpen) return@onPreviewKeyEvent false
-                if (controlsVisible && event.key != Key.MediaPlayPause) return@onPreviewKeyEvent false
-                if (event.key in ConfirmKeys) {
-                    if (event.type == KeyEventType.KeyUp) {
-                        if (photo != null) {
-                            controlsFocus = slideshowFocus
-                            controlsOpen = true
-                        } else {
-                            viewModel.openVideoPlayer()
-                        }
-                        overlayKey++
+                // While the details or the options are open the keys belong to the panel.
+                if (modalOpen || item == null) return@onPreviewKeyEvent false
+                if (event.key == Key.Menu) {
+                    if (event.type == KeyEventType.KeyUp) viewModel.showMenu(PhotoMenu.Options)
+                    return@onPreviewKeyEvent true
+                }
+                if (event.key == Key.Info) {
+                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                        viewModel.openDetails()
                     }
+                    return@onPreviewKeyEvent true
+                }
+                if (controlsVisible) {
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            if (event.type == KeyEventType.KeyUp) controlsOpen = false
+                        }
+                        Key.DirectionDown -> Unit
+                        Key.MediaPlayPause -> {
+                            if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                                viewModel.playPause()
+                            }
+                        }
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    return@onPreviewKeyEvent true
+                }
+                val isOk = event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter
+                if (isOk) {
+                    // Holding OK repeats the key: the first repeat opens the options, the release does nothing.
+                    // OK acts on the release, so a held key never starts the slideshow or the player.
+                    val native = event.nativeKeyEvent
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            if (native.repeatCount == 0) heldOk = false
+                            if (native.repeatCount == 1) {
+                                heldOk = true
+                                viewModel.showMenu(PhotoMenu.Options)
+                            }
+                        }
+
+                        KeyEventType.KeyUp -> {
+                            if (!heldOk) {
+                                // On a photo that did not load OK tries again.
+                                if (failedId != null && failedId == state.current?.id) {
+                                    failedId = null
+                                    retry++
+                                } else {
+                                    viewModel.select()
+                                }
+                            }
+                            heldOk = false
+                        }
+                    }
+                    overlayKey++
                     return@onPreviewKeyEvent true
                 }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
-                    direction.startKey -> viewModel.browseBy(-1)
-                    direction.endKey -> viewModel.browseBy(1)
+                    direction.startKey -> viewModel.previous()
+
+                    direction.endKey -> viewModel.next()
+
                     Key.MediaPlayPause -> viewModel.playPause()
-                    Key.DirectionUp, Key.DirectionDown -> Unit
+
+                    Key.DirectionDown -> {
+                        restoreFocus = playFocus
+                        controlsOpen = true
+                    }
+
+                    // Up brings the key caps back.
+                    Key.DirectionUp -> hintKey++
+
                     else -> return@onPreviewKeyEvent false
                 }
                 overlayKey++
@@ -204,6 +321,15 @@ fun PhotoScreen(
             }
             .focusable(),
     ) {
+        val current = state.current
+        // Behind a photo: a blurred copy of it in place of the black bars. A portrait video brings its own with its frame.
+        if (blurred) {
+            Crossfade(
+                targetState = (current as? FolderMedia.Photo)?.photo?.fullUrl,
+                animationSpec = tween(if (reduceMotion) FADE_MS else BROWSE_MS),
+                label = "backdrop",
+            ) { url -> if (url != null) BlurredPhotoBackdrop(url) }
+        }
         when {
             state.loading && current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 SpinningDiamond(110)
@@ -218,8 +344,8 @@ fun PhotoScreen(
                 PillButton(stringResource(R.string.action_retry), onClick = viewModel::load, primary = true)
             }
 
-            current != null -> AnimatedContent(
-                targetState = current,
+            item != null -> AnimatedContent(
+                targetState = item,
                 contentKey = { it.id },
                 transitionSpec = {
                     when {
@@ -245,18 +371,40 @@ fun PhotoScreen(
                 label = "photo",
             ) {
                 when (it) {
-                    is FolderMedia.Photo -> PhotoImage(it.photo)
+                    is FolderMedia.Photo -> key(retry) {
+                        PhotoImage(
+                            photo = it.photo,
+                            previous = lastSharp,
+                            reduceMotion = reduceMotion,
+                            onSharp = { photo -> lastSharp = photo },
+                            onFailed = { failed ->
+                                if (failed) {
+                                    failedId = it.id
+                                } else if (failedId == it.id) {
+                                    failedId = null
+                                }
+                            },
+                        )
+                    }
 
                     is FolderMedia.Video -> {
                         val player = video.player.takeIf { _ -> video.id == it.id }
-                        GalleryVideo(it.item.thumbUrl, player)
+                        // The frame shows until the stream has its first picture, then the video over it.
+                        VideoStill(it.item, playing = player != null)
+                        if (player != null) {
+                            ContentFrame(
+                                player = player,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
                     }
                 }
             }
         }
 
         AnimatedVisibility(
-            visible = !modalOpen && (controlsVisible || (overlay && (caption != null || captionDate != null))),
+            visible = !modalOpen && (controlsVisible || location != null || date != null),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -264,62 +412,88 @@ fun PhotoScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD905090F))))
+                    .then(
+                        if (controlsVisible) {
+                            Modifier.background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD905090F))))
+                        } else {
+                            Modifier
+                        },
+                    )
                     .padding(start = PageEdge.dp, end = PageEdge.dp, top = 120.dp, bottom = 56.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                caption?.let {
+                location?.let {
                     Text(
                         it,
-                        style = GlacierText.display(34),
+                        modifier = Modifier.fillMaxWidth(if (hints && !controlsVisible) 0.48f else 1f),
+                        style = GlacierText.display(34).copy(shadow = CaptionShadow),
                         color = GlacierColors.Ice,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                captionDate?.let { Text(it, style = GlacierText.body(21), color = GlacierColors.Mist) }
-                if (caption != null && state.photoPlace?.fromOpenStreetMap == true) OpenStreetMapAttribution()
+                date?.let {
+                    Text(it, style = GlacierText.body(21).copy(shadow = CaptionShadow), color = GlacierColors.Ice)
+                }
+                if (attributed) OpenStreetMapAttribution()
                 if (controlsVisible) {
-                    PhotoControls(
+                    ViewerControls(
                         state = state,
-                        canDelete = photo.photo.canDelete,
-                        slideshowFocus = slideshowFocus,
+                        playing = if (item is FolderMedia.Video) video.playing else state.slideshow,
+                        playFocus = playFocus,
                         infoFocus = infoFocus,
-                        onBrowse = viewModel::browseBy,
-                        onSlideshow = {
-                            if (!state.slideshow) controlsOpen = false
-                            viewModel.playPause()
-                        },
+                        menuFocus = menuFocus,
+                        onPrevious = viewModel::previous,
+                        onNext = viewModel::next,
+                        onPlayPause = viewModel::playPause,
                         onInfo = {
-                            viewModel.stopSlideshow()
-                            controlsFocus = infoFocus
-                            infoOpen = true
+                            restoreFocus = infoFocus
+                            viewModel.openDetails()
                         },
-                        onDelete = {
-                            controlsFocus = slideshowFocus
-                            viewModel.openDelete()
+                        onMenu = {
+                            restoreFocus = menuFocus
+                            viewModel.showMenu(PhotoMenu.Options)
                         },
                     )
                 }
             }
         }
 
-        // Where in the folder this is, small in the top corner, shown and hidden with the caption.
+        // The hints use text shadows so the picture stays unobscured while browsing.
+        AnimatedVisibility(
+            visible = hints && item != null && !modalOpen && !controlsVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth(),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(end = PageEdge.dp, top = 90.dp, bottom = 56.dp),
+                contentAlignment = Alignment.BottomEnd,
+            ) {
+                ViewerHints(video = item is FolderMedia.Video, slideshow = state.slideshow)
+            }
+        }
+
+        // Where in the folder this is, small in the top corner.
         AnimatedVisibility(
             visible = (overlay || controlsVisible) && state.media.size > 1 && !modalOpen,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = PageEdge.dp),
         ) {
-            Text(
-                stringResource(R.string.photo_position, state.index + 1, state.media.size),
-                style = GlacierText.body(18, FontWeight.SemiBold),
-                color = GlacierColors.Ice,
-                modifier = Modifier
-                    .clip(PillShape)
-                    .background(Color(0xB305090F))
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-            )
+            // "3 / 7" reads left to right in every language.
+            LeftToRight {
+                Text(
+                    stringResource(R.string.photo_position, shownIndex + 1, state.media.size),
+                    style = GlacierText.body(18, FontWeight.SemiBold),
+                    color = GlacierColors.Ice,
+                    modifier = Modifier
+                        .overlayPill()
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                )
+            }
         }
 
         // Along the bottom edge: how far a video has played, or the slideshow's time for a photo.
@@ -340,31 +514,26 @@ fun PhotoScreen(
                 )
         }
 
-        if (infoOpen && photo != null) {
-            PhotoInfoPanel(photo, state.photoPlace, viewModel::photoDetails, onDismiss = { infoOpen = false })
-        }
-        if (deleteTarget != null) {
-            DeleteMediaDialog(
-                title = stringResource(R.string.photo_delete_title),
-                message = stringResource(R.string.photo_delete_body, deleteTarget.name),
-                deleting = state.deleting,
-                onConfirm = viewModel::deletePhoto,
-                onDismiss = viewModel::closeDelete,
-            )
+        current?.let { PhotoMenuHost(it, state.menu, viewModel) }
+
+        info?.let {
+            PhotoInfoPanel(it, video, viewModel::transcodeStatus, state.photoPlace, onDismiss = viewModel::closeDetails)
         }
     }
 }
 
 @Composable
-private fun PhotoControls(
+private fun ViewerControls(
     state: PhotoState,
-    canDelete: Boolean,
-    slideshowFocus: FocusRequester,
+    playing: Boolean,
+    playFocus: FocusRequester,
     infoFocus: FocusRequester,
-    onBrowse: (Int) -> Unit,
-    onSlideshow: () -> Unit,
+    menuFocus: FocusRequester,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onPlayPause: () -> Unit,
     onInfo: () -> Unit,
-    onDelete: () -> Unit,
+    onMenu: () -> Unit,
 ) {
     Row(
         Modifier
@@ -380,49 +549,42 @@ private fun PhotoControls(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (state.index > 0) {
-                    ControlButton(
-                        GlacierIcons.SkipBack,
-                        stringResource(R.string.photo_previous),
-                        onClick = {
-                            if (state.index == 1) slideshowFocus.requestFocus()
-                            onBrowse(-1)
-                        },
-                    )
+                    ControlButton(GlacierIcons.SkipBack, stringResource(R.string.photo_previous), onClick = {
+                        if (state.index == 1) playFocus.requestFocus()
+                        onPrevious()
+                    })
+                }
+                val playLabel = when {
+                    state.current is FolderMedia.Video -> if (playing) R.string.player_pause else R.string.player_play
+                    playing -> R.string.photo_slideshow_stop
+                    else -> R.string.photo_slideshow_start
                 }
                 ControlButton(
-                    if (state.slideshow) GlacierIcons.Pause else GlacierIcons.Play,
-                    stringResource(
-                        if (state.slideshow) R.string.photo_slideshow_stop else R.string.photo_slideshow_start,
-                    ),
-                    onClick = onSlideshow,
-                    modifier = Modifier.focusRequester(slideshowFocus),
+                    if (playing) GlacierIcons.Pause else GlacierIcons.Play,
+                    stringResource(playLabel),
+                    onClick = onPlayPause,
+                    modifier = Modifier.focusRequester(playFocus),
                     big = true,
                 )
                 if (state.index < state.media.lastIndex) {
-                    ControlButton(
-                        GlacierIcons.SkipForward,
-                        stringResource(R.string.photo_next),
-                        onClick = {
-                            if (state.index == state.media.lastIndex - 1) slideshowFocus.requestFocus()
-                            onBrowse(1)
-                        },
-                    )
+                    ControlButton(GlacierIcons.SkipForward, stringResource(R.string.photo_next), onClick = {
+                        if (state.index == state.media.lastIndex - 1) playFocus.requestFocus()
+                        onNext()
+                    })
                 }
             }
         }
+        ControlButton(GlacierIcons.Info, stringResource(R.string.player_info), onInfo, Modifier.focusRequester(infoFocus))
         ControlButton(
-            GlacierIcons.Info,
-            stringResource(R.string.player_info),
-            onClick = onInfo,
-            modifier = Modifier.focusRequester(infoFocus),
+            GlacierIcons.More,
+            stringResource(R.string.photo_hint_options),
+            onMenu,
+            Modifier.focusRequester(menuFocus),
         )
-        if (canDelete) {
-            ControlButton(GlacierIcons.Trash, stringResource(R.string.player_delete), onClick = onDelete)
-        }
     }
 }
 
-private val ConfirmKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter)
+private val CaptionShadow = Shadow(Color.Black.copy(alpha = 0.85f), Offset(0f, 2f), 8f)
 
 /** A thin line filling from left to right over [durationMs], from the start again for each new [key]. */
 @Composable
@@ -441,46 +603,347 @@ private fun SlideProgress(
     )
 }
 
-/** The whole photo, as large as the screen allows; a line when it does not load. */
+/** A pill over the picture that reads on black bars and on bright photos alike: a dark, slightly lifted fill and an outline that shows next to black. */
+private fun Modifier.overlayPill(): Modifier = this
+    .clip(PillShape)
+    .background(OverlayPillFill)
+    .background(GlacierColors.GlassFill2)
+    .border(PILL_BORDER.dp, GlacierColors.Ice.copy(alpha = PILL_BORDER_ALPHA), PillShape)
+
+/**
+ * What [menu] has open over the viewer for [item]: its options in a panel, or the question before deleting it.
+ * Options: start the slideshow or play the video, the details, and delete when the server allows it.
+ */
 @Composable
-private fun PhotoImage(photo: MediaPhoto) {
-    val context = LocalContext.current
-    val request = remember(context, photo.fullUrl) { photoImageRequest(context, photo.fullUrl) }
-    var failed by remember(request) { mutableStateOf(false) }
-    var bitmap by remember(request) { mutableStateOf<Bitmap?>(null) }
-    var backdrop by remember(request) { mutableStateOf<ImageBitmap?>(null) }
-    var viewport by remember { mutableStateOf(IntSize.Zero) }
-    val source = bitmap
-    val sample = source?.let { backdropSampleSize(it.width.toFloat() / it.height, viewport) }
-    LaunchedEffect(source, sample) {
-        backdrop = if (source != null && sample != null) {
-            withContext(Dispatchers.Default) {
-                Bitmap.createScaledBitmap(source, sample.width, sample.height, true).blurredFrame().asImageBitmap()
+private fun PhotoMenuHost(
+    item: FolderMedia,
+    menu: PhotoMenu?,
+    viewModel: PhotoViewModel,
+) {
+    val video = item is FolderMedia.Video
+    when (menu) {
+        null -> Unit
+
+        PhotoMenu.ConfirmDelete -> ConfirmDeleteDialog(
+            title = stringResource(if (video) R.string.video_delete_title else R.string.photo_delete_title),
+            body = stringResource(R.string.photo_delete_body, item.name),
+            confirmLabel = stringResource(R.string.photo_delete),
+            onConfirm = viewModel::deleteCurrent,
+            onDismiss = { viewModel.showMenu(null) },
+        )
+
+        PhotoMenu.Options -> {
+            val first = remember { FocusRequester() }
+            OptionsPanel(
+                title = item.name,
+                subtitle = longTakenText(item.date),
+                onDismiss = { viewModel.showMenu(null) },
+                first = first,
+            ) {
+                OptionRow(
+                    stringResource(if (video) R.string.photo_play_in_player else R.string.photo_slideshow_start),
+                    stringResource(if (video) R.string.photo_play_desc else R.string.photo_slideshow_desc),
+                    {
+                        viewModel.showMenu(null)
+                        viewModel.select()
+                    },
+                    Modifier.focusRequester(first),
+                    GlacierIcons.Play,
+                )
+                OptionRow(
+                    stringResource(R.string.photo_hint_details),
+                    stringResource(R.string.photo_details_desc),
+                    {
+                        viewModel.showMenu(null)
+                        viewModel.openDetails()
+                    },
+                    icon = GlacierIcons.Info,
+                )
+                if (item.canDelete) {
+                    OptionRow(
+                        stringResource(R.string.photo_delete),
+                        stringResource(if (video) R.string.video_delete_desc else R.string.photo_delete_desc),
+                        { viewModel.showMenu(PhotoMenu.ConfirmDelete) },
+                        icon = GlacierIcons.Trash,
+                    )
+                }
             }
-        } else {
-            null
         }
     }
-    Box(Modifier.fillMaxSize().onSizeChanged { viewport = it }, contentAlignment = Alignment.Center) {
-        if (failed) {
-            Text(stringResource(R.string.photo_error), style = GlacierText.body(21), color = GlacierColors.Mist)
+}
+
+/** Whether the photo has a BlurHash that decodes and a shape to draw it in; otherwise its thumbnail stands in. */
+private fun MediaPhoto.hasPlaceholder(): Boolean {
+    val hash = blurHash ?: return false
+    return aspectRatio != null && blurHashComponents(hash) != null
+}
+
+private fun MediaPhoto.placeholderSize(): Pair<Int, Int> = blurHashSize(aspectRatio ?: 1f)
+
+/** The decoded placeholder if it is in the cache already; cheap, safe on the main thread. */
+private fun MediaPhoto.cachedPlaceholder(): ImageBitmap? {
+    val hash = blurHash ?: return null
+    if (aspectRatio == null) return null
+    val (w, h) = placeholderSize()
+    return BlurHashCache.get(hash, w, h)
+}
+
+/** The placeholder, decoded now when it is not cached: call off the main thread. */
+private fun MediaPhoto.placeholder(): ImageBitmap? {
+    val hash = blurHash ?: return null
+    if (aspectRatio == null) return null
+    val (w, h) = placeholderSize()
+    return BlurHashCache.decode(hash, w, h)
+}
+
+/**
+ * The keys of the viewer as plain glyphs and labels: browse, OK, controls and the options (hold OK, or Menu).
+ * The options' ring fills once as the row appears (at once with
+ * "reduce motion"). The arrows are the physical keys and mirror with the layout like the browsing does.
+ */
+@Composable
+private fun ViewerHints(video: Boolean, slideshow: Boolean) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(HINT_GAP.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (slideshow) {
+            HintItem(stringResource(R.string.player_pause)) { OkGlyph() }
+            HintItem(stringResource(R.string.photo_hint_controls)) { HintIcon(GlacierIcons.ChevronDown) }
         } else {
-            backdrop?.takeIf { sample != null }?.let { BlurredMediaBackdrop(it) }
+            HintItem(stringResource(R.string.photo_hint_browse)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    HintIcon(GlacierIcons.ChevronLeft)
+                    HintIcon(GlacierIcons.ChevronRight)
+                }
+            }
+            HintItem(stringResource(if (video) R.string.player_play else R.string.photo_hint_slideshow)) { OkGlyph() }
+            HintItem(stringResource(R.string.photo_hint_controls)) { HintIcon(GlacierIcons.ChevronDown) }
+            HintItem(stringResource(R.string.photo_hint_options)) { OptionsRing() }
+        }
+    }
+}
+
+/** A key's [glyph] and what it does; the soft shadow keeps the label readable on bright photos. */
+@Composable
+private fun HintItem(label: String, glyph: @Composable () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        glyph()
+        Text(label, style = hintStyle(FontWeight.Medium, HINT_TEXT_SP), color = GlacierColors.Ice)
+    }
+}
+
+@Composable
+private fun HintIcon(icon: ImageVector) =
+    Icon(icon, contentDescription = null, tint = GlacierColors.Ice, modifier = Modifier.size(HINT_ICON.dp))
+
+/** The OK key as bold small text. */
+@Composable
+private fun OkGlyph() = Text("OK", style = hintStyle(FontWeight.Bold, HINT_OK_SP), color = GlacierColors.Ice)
+
+/** OK in a thin ring whose accent arc runs round once as it appears; the rest of the ring is a faint track. */
+@Composable
+private fun OptionsRing() {
+    val accent = LocalAccent.current.main
+    val reduceMotion = LocalReduceMotion.current
+    val sweep = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    LaunchedEffect(reduceMotion) {
+        if (reduceMotion) sweep.snapTo(1f) else sweep.animateTo(1f, tween(RING_MS, easing = FastOutSlowInEasing))
+    }
+    Box(
+        Modifier
+            .size(RING_SIZE.dp)
+            .drawBehind {
+                val stroke = RING_STROKE.dp.toPx()
+                val inset = stroke / 2
+                val arc = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+                val at = Offset(inset, inset)
+                drawArc(GlacierColors.Ice.copy(alpha = 0.28f), 0f, 360f, false, at, arc, style = Stroke(stroke))
+                drawArc(
+                    accent,
+                    startAngle = -90f,
+                    sweepAngle = 360f * sweep.value,
+                    useCenter = false,
+                    topLeft = at,
+                    size = arc,
+                    style = Stroke(stroke, cap = StrokeCap.Round),
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) { Text("OK", style = hintStyle(FontWeight.Bold, RING_OK_SP), color = GlacierColors.Ice) }
+}
+
+/** The hints' text: a soft dark shadow instead of a box behind it. */
+@Composable
+private fun hintStyle(weight: FontWeight, size: Int) = GlacierText.body(size, weight).copy(
+    shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 2f), blurRadius = 8f),
+)
+
+private const val HINT_GAP = 34
+private const val HINT_TEXT_SP = 20
+private const val HINT_OK_SP = 17
+private const val RING_OK_SP = 13
+private const val HINT_ICON = 22
+private const val RING_SIZE = 34
+private const val RING_STROKE = 2
+private const val RING_MS = 900
+
+/**
+ * The whole photo, as large as the screen allows. Until it is sharp its BlurHash shows with a loader, tiny and drawn
+ * smoothed up over exactly the area the photo will fill. A photo without a usable BlurHash shows its thumbnail instead
+ * (decoded tiny and drawn smoothed up, which blurs it on every Android version); when neither is there, [previous]
+ * stays dimmed. A photo that is in the memory cache comes without any of it. A line and a retry hint show when it
+ * does not load.
+ */
+@Composable
+private fun PhotoImage(
+    photo: MediaPhoto,
+    previous: MediaPhoto?,
+    reduceMotion: Boolean,
+    onSharp: (MediaPhoto) -> Unit,
+    onFailed: (Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    // Preloaded photos sit in the memory cache under their URL.
+    val cached = remember(photo.id) {
+        SingletonImageLoader.get(context).memoryCache?.get(MemoryCache.Key(photo.fullUrl)) != null
+    }
+    var loaded by remember(photo.id) { mutableStateOf(false) }
+    var assumedCached by remember(photo.id) { mutableStateOf(cached) }
+    var thumbnail by remember(photo.id) { mutableStateOf(false) }
+    // The placeholder is decoded off the main thread; a neighbour decoded ahead is in the cache already.
+    val hasPlaceholder = photo.hasPlaceholder()
+    var placeholder by remember(photo.id) { mutableStateOf(photo.cachedPlaceholder()) }
+    LaunchedEffect(photo.id) {
+        if (hasPlaceholder && placeholder == null) {
+            placeholder = withContext(Dispatchers.Default) { photo.placeholder() }
+        }
+    }
+    var failed by remember(photo.id) { mutableStateOf(false) }
+    LaunchedEffect(failed) { onFailed(failed) }
+    DisposableEffect(photo.id) { onDispose { onFailed(false) } }
+    // A cache entry the picture then does not use must not leave a black screen without a loader.
+    LaunchedEffect(photo.id) {
+        if (assumedCached) {
+            delay(CACHE_CLAIM_MS)
+            if (!loaded) assumedCached = false
+        }
+    }
+    val scope = rememberCoroutineScope()
+
+    /** Removes a failed URL from the disk cache and the memory cache [memoryKey]. */
+    fun dropCached(url: String, memoryKey: String) {
+        val loader = SingletonImageLoader.get(context)
+        loader.memoryCache?.remove(MemoryCache.Key(memoryKey))
+        scope.launch(Dispatchers.IO) { loader.diskCache?.remove(url) }
+    }
+    val sharp = loaded || assumedCached
+    val alpha by animateFloatAsState(
+        if (sharp) 1f else 0f,
+        tween(if (reduceMotion) FADE_MS else CROSSFADE_MS),
+        label = "sharp",
+    )
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (failed) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(stringResource(R.string.photo_error), style = GlacierText.body(21), color = GlacierColors.Mist)
+                KeyHint(stringResource(R.string.action_retry)) { KeyCap("OK", strong = true) }
+            }
+        } else {
+            // Under the sharp photo while it fades in.
+            if (alpha < 1f) {
+                if (!hasPlaceholder) {
+                    if (!thumbnail && previous != null && previous.id != photo.id) {
+                        AsyncImage(
+                            model = previous.fullUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            alpha = DIMMED_ALPHA,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(photo.thumbUrl)
+                            .size(BLUR_PX, BLUR_PX)
+                            .memoryCacheKey("blur:${photo.thumbUrl}")
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        onSuccess = { thumbnail = true },
+                        onError = { dropCached(photo.thumbUrl, "blur:${photo.thumbUrl}") },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    // Sized by the photo's shape, so it covers where the photo will be. The tiny bitmap's whole
+                    // pixels round its shape a little, so it is stretched to the box instead of fitted into it.
+                    placeholder?.let {
+                        Image(
+                            bitmap = it,
+                            contentDescription = null,
+                            contentScale = ContentScale.FillBounds,
+                            filterQuality = FilterQuality.Low,
+                            modifier = Modifier.aspectRatio(photo.aspectRatio ?: 1f),
+                        )
+                    }
+                }
+            }
+            if (!sharp) SpinningDiamond(LOADER_SIZE)
             AsyncImage(
-                model = request,
+                model = photo.fullUrl,
                 contentDescription = photo.name,
                 contentScale = ContentScale.Fit,
-                onSuccess = { bitmap = (it.result.image as? BitmapImage)?.bitmap },
-                onError = { failed = true },
-                modifier = Modifier.fillMaxSize(),
+                onSuccess = {
+                    loaded = true
+                    onSharp(photo)
+                },
+                onError = { error ->
+                    // A broken entry (an aborted transfer) must not poison the photo: the retry goes to the network.
+                    Log.w(TAG, "Loading the photo ${photo.id} failed", error.result.throwable)
+                    dropCached(photo.fullUrl, photo.fullUrl)
+                    failed = true
+                },
+                modifier = Modifier.fillMaxSize().alpha(alpha),
             )
         }
     }
 }
 
-/** The small blurred sample can be made from the same decoded image as the sharp photo. */
-private fun photoImageRequest(context: Context, url: String) =
-    ImageRequest.Builder(context).data(url).allowHardware(false).build()
+/**
+ * A video's frame until it plays, whole like a photo and like the video after it (a portrait video's frame
+ * is not cropped to the screen); the play sign while its stream is not open yet.
+ */
+@Composable
+private fun VideoStill(video: MediaItem, playing: Boolean) {
+    val accent = LocalAccent.current
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = video.thumbUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (!playing) {
+            Box(
+                Modifier
+                    .size(96.dp)
+                    .clip(PillShape)
+                    .background(accent.main),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    GlacierIcons.Play,
+                    contentDescription = null,
+                    tint = GlacierColors.Void,
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
+    }
+}
 
 /** Transitions: browsing by hand, the slideshow's slow blend, and a plain fade with "reduce motion". */
 private const val BROWSE_MS = 350
@@ -506,6 +969,27 @@ internal fun longTakenText(date: LocalDateTime?): String? {
     )
     return "$day · $time"
 }
+
+private const val TAG = "Photos"
+
+/** The blurred thumbnail of a photo without a BlurHash: decoded to this many pixels on its long side, then drawn up. */
+private const val BLUR_PX = 48
+
+/** How many photos ahead in the browsing direction, and behind it, load before they are asked for. */
+private const val PRELOAD_AHEAD = 3
+private const val PRELOAD_BEHIND = 1
+private const val CROSSFADE_MS = 250
+private val OverlayPillFill = Color(0xE60F1A24)
+private const val PILL_BORDER = 1.5f
+private const val PILL_BORDER_ALPHA = 0.35f
+private const val DIMMED_ALPHA = 0.35f
+private const val LOADER_SIZE = 72
+
+/** How long a photo from the memory cache may take to show before the thumbnail and loader come after all. */
+private const val CACHE_CLAIM_MS = 400L
+
+/** How long the key caps stay. */
+private const val HINTS_MS = 5_000L
 
 /** The slideshow's progress line at the bottom edge. */
 private const val SLIDE_PROGRESS_HEIGHT = 5

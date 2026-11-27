@@ -8,17 +8,37 @@ only in English.
 
 ## [Unreleased]
 
+### Novedades
+- Una fila de Grabaciones en la pantalla de inicio y las grabaciones como fuente opcional del destacado
+- Una fila de Grabaciones en la página de favoritos
+- Detalles de fotos y vídeos en el visor de fotos. Con Abajo o la tecla Info, la primera pestaña muestra cuándo y dónde se tomó y su carpeta, y la pestaña Técnico la cámara, la exposición y el archivo. Un vídeo muestra las mismas pestañas Técnico y Servidor que el reproductor. Mantén pulsado OK o pulsa Menú para abrir las opciones, que también eliminan una foto o un vídeo del servidor tras una confirmación cuando el servidor lo permite. También funciona manteniendo pulsado OK sobre una foto o un vídeo en la carpeta (#43). Un ajuste rellena las barras negras alrededor de las fotos y los vídeos verticales con una copia desenfocada
+- Las páginas de detalles de películas y series con varias imágenes de fondo las muestran una tras otra
+
 ### Mejoras
+- La línea sobre un título ahora es una ruta. Sus niveles abren la biblioteca, la serie, la temporada o una carpeta superior
 - Los especiales que una temporada muestra entre sus episodios llevan la etiqueta «Especial»
 - Las etiquetas sobre imágenes de episodios y pósteres tienen un fondo más oscuro y se leen bien en imágenes claras
 - Los detalles del episodio llaman a un especial «Especiales» en lugar de temporada 0
 - La elección de audio y subtítulos durante la reproducción ya no muestra «Se aplica ahora» bajo el título
 - Al ordenar por año, los títulos del mismo año siguen su fecha de estreno en lugar del orden alfabético
 - Al subir o bajar a una fila, ahora se empieza en su primera tarjeta. Después la fila recuerda la tarjeta en la que la dejaste, también al volver de una página de detalles
+- El orden de la A a la Z ignora artículos como «The», «Der» o «La» en el idioma de cada título. El idioma viene de tu servidor Jellyfin. En Ajustes › Apariencia › Ignorar artículos lo desactivas
+- Al pasar fotos, el nombre y la fecha de la siguiente aparecen al instante, con una vista previa desenfocada y un indicador de carga hasta que la foto está nítida. Las siguientes fotos se cargan por adelantado, así que pasar fotos hace esperar menos. Una foto que no carga se puede reintentar con OK (#43)
+- El visor de fotos muestra sus teclas como teclas dibujadas en la esquina inferior al abrirse, y con Arriba vuelven a aparecer (#43)
+- Los vídeos de una carpeta de fotos llevan el símbolo de reproducción, y los clips de menos de un minuto muestran su duración en segundos (#43)
+- Tras pasar a un flujo más pequeño, la reproducción vuelve mucho antes a la calidad completa: en unos 40 segundos en lugar de varios minutos, con menos espera antes del cambio
+- El panel de información muestra cuándo se hace la próxima comprobación de la conexión mientras se reproduce un flujo más pequeño
+- Los vídeos caseros sin imagen en el servidor muestran un fotograma del vídeo en la cuadrícula, la galería y el visor. Los vídeos verticales y los grabados en vertical con el móvil aparecen en la orientación correcta
 
 ### Correcciones
+- Las fotos y los vídeos muestran la hora en que se tomaron en la zona horaria del televisor. Antes se desviaba por la diferencia con UTC (#43)
 - La temporada de especiales muestra sus episodios en orden y no por título
 - Los vídeos caseros girados se ven derechos también en televisores que ignoraban el giro (#43)
+- Las grabaciones de TV en directo ya no aparecen entre las películas y series. Siguen en TV en directo > Grabaciones y la búsqueda las sigue encontrando
+- Los tráileres de YouTube ya no se quedan en la pantalla de carga ni fallan cuando ya se están reproduciendo
+- La reproducción ya no pasa a un flujo más pequeño por una sola prueba de conexión lenta mientras sigue al día. La prueba comparte la conexión con el vídeo, así que se repite y se contrasta antes con la velocidad del reproductor
+- Un episodio ya no empieza con subtítulos (o audio) que el servidor eligió para un episodio anterior, como subtítulos en japonés. El siguiente episodio solo adopta las pistas que elegiste tú
+- Los vídeos caseros ya no muestran la cuenta atrás «Siguiente episodio» cerca del final. El siguiente vídeo de la carpeta sigue empezando cuando termina uno
 
 ## [0.10.1] - 2026-11-18
 

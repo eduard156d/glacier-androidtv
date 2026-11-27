@@ -25,8 +25,10 @@ data class MediaItem(
     val id: UUID,
     val kind: ItemKind,
     val title: String,
-    /** The server's sort name: lower case, leading articles removed. */
+    /** The server's sort name: lower case, some words removed. */
     val sortName: String?,
+    /** What a library list sorts and files this title under (see [NameOrder.sortTitle]); null outside library lists. */
+    val sortTitle: String? = null,
     val year: Int?,
     /** Last year a show aired; null while it runs or when unknown. */
     val endYear: Int? = null,
@@ -87,4 +89,6 @@ data class HomeContent(
     val favoriteSongs: List<MusicTrack> = emptyList(),
     /** Live TV channels (no radio stations), favorites first, each with what runs on it now. */
     val liveChannels: List<LiveChannel> = emptyList(),
+    /** Finished Live TV recordings, newest first. */
+    val recordings: List<MediaItem> = emptyList(),
 )

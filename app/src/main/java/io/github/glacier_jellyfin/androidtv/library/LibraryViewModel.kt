@@ -7,6 +7,7 @@ import androidx.navigation.toRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.glacier_jellyfin.androidtv.R
 import io.github.glacier_jellyfin.androidtv.core.data.SessionManager
+import io.github.glacier_jellyfin.androidtv.core.data.media.Articles
 import io.github.glacier_jellyfin.androidtv.core.data.media.DetailRepository
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderContent
 import io.github.glacier_jellyfin.androidtv.core.data.media.FolderMedia
@@ -115,13 +116,20 @@ class LibraryViewModel @Inject constructor(
 
     private val kind = LibraryKind.valueOf(route.kind)
 
+    /** The tab the route asks for, when this library has it. */
+    private val routeScope: LibraryScope? = route.scope
+        ?.let { name -> LibraryScope.entries.firstOrNull { it.name == name } }
+        ?.takeIf { it in LibraryQuery.scopes(kind, inGenre = route.genreId != null, musicVideos = true) }
+
     /** Where the user left this library last time (the bar starts it anew); only for the bar's own libraries. */
     private val remembered: LibraryMemory? = memory.library(kind)?.takeIf {
-        inNavBar && it.scope in LibraryQuery.scopes(kind, inGenre = false, musicVideos = true)
+        inNavBar && route.scope == null && it.scope in LibraryQuery.scopes(kind, inGenre = false, musicVideos = true)
     }
 
     /** The title that had the focus then, for the grid to go back to. */
     val restoredFocus: String? = remembered?.focusId
+
+    private val appearance = settings.settings.value.appearance
 
     private val _state = MutableStateFlow(
         LibraryState(
@@ -129,8 +137,9 @@ class LibraryViewModel @Inject constructor(
                 kind = kind,
                 libraryId = route.libraryId?.let(UUID::fromString),
                 genreId = route.genreId?.let(UUID::fromString),
-                groupCollections = settings.settings.value.appearance.groupCollections,
-                scope = remembered?.scope ?: LibraryQuery.defaultScope(kind),
+                groupCollections = appearance.groupCollections,
+                articles = Articles.requested(appearance.ignoreArticles),
+                scope = routeScope ?: remembered?.scope ?: LibraryQuery.defaultScope(kind),
             ),
             title = route.title,
             userName = sessions.session.value?.user?.name.orEmpty(),

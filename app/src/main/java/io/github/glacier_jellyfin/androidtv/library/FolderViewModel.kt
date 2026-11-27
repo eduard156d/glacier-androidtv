@@ -293,7 +293,7 @@ class FolderViewModel @Inject constructor(
         memory.folderFocused(folderId, id)
     }
 
-    /** Opens the shared viewer, or the video player when the user chooses Play in the options. */
+    /** Opens the shared viewer. [inPlayer] opens a video in the full player from the gallery or the options. */
     fun open(media: FolderMedia, inPlayer: Boolean = false) {
         val folder = _state.value.content?.id?.toString() ?: return
         val video = media as? FolderMedia.Video

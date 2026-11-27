@@ -14,7 +14,10 @@ import io.github.glacier_jellyfin.androidtv.core.data.media.FolderRepository
 import io.github.glacier_jellyfin.androidtv.core.data.media.PhotoDetails
 import io.github.glacier_jellyfin.androidtv.core.data.media.PhotoLocation
 import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackRepository
+import io.github.glacier_jellyfin.androidtv.core.data.playback.PlaybackSource
+import io.github.glacier_jellyfin.androidtv.core.data.playback.StreamBudget
 import io.github.glacier_jellyfin.androidtv.core.data.playback.TranscodeStatus
+import io.github.glacier_jellyfin.androidtv.core.data.settings.MaxBitrate
 import io.github.glacier_jellyfin.androidtv.core.data.settings.SettingsRepository
 import io.github.glacier_jellyfin.androidtv.core.jellyfin.runSuspendCatching
 import io.github.glacier_jellyfin.androidtv.core.log.Log
@@ -80,7 +83,7 @@ class PhotoViewModel @Inject constructor(
     private val repository: FolderRepository,
     private val settings: SettingsRepository,
     private val geocoder: PhotoGeocoder,
-    playback: PlaybackRepository,
+    private val playback: PlaybackRepository,
     private val memory: BrowseMemory,
 ) : ViewModel() {
     private val route = savedStateHandle.toRoute<PhotoRoute>()
@@ -351,7 +354,11 @@ class PhotoViewModel @Inject constructor(
         if (_state.value.slideshow) advance()
     }
 
-    private fun onVideoFailed(id: UUID, position: Long) {
+    private fun onVideoFailed(
+        id: UUID,
+        position: Long,
+        stalled: PlaybackSource?,
+    ) {
         val state = _state.value
         if (!active || state.current?.id != id) return
         if (state.slideshow) {
@@ -359,6 +366,10 @@ class PhotoViewModel @Inject constructor(
             return
         }
         if (state.menu != null || _info.value != null) return
+        val automaticQuality = settings.settings.value.playback.maxBitrate == MaxBitrate.Auto
+        if (stalled != null && stalled.ladder == null && automaticQuality) {
+            stalled.streamBitrate?.takeIf { it > StreamBudget.FLOOR }?.let { playback.lowerBudget(it) }
+        }
         val playerRoute = PlayerRoute(id.toString(), queueOf = route.folderId, startMs = position)
         viewModelScope.launch {
             _events.send(UiEvent.Navigate(playerRoute, replace = true))

@@ -179,19 +179,25 @@ class InlineVideo(
         firstFrame = false
     }
 
-    private fun startTicker(player: Player, source: PlaybackSource) {
+    private fun startTicker(player: ExoPlayer, source: PlaybackSource) {
         ticker = scope.launch {
             val timeout = startupTimeoutMs(source.method)
             var lastMovement = SystemClock.elapsedRealtime()
             var lastPosition = player.currentPosition
+            var lastFrameCount: Int? = null
             while (isActive) {
                 val now = SystemClock.elapsedRealtime()
                 val position = player.currentPosition
+                val frames = player.videoDecoderCounters?.let {
+                    it.ensureUpdated()
+                    it.renderedOutputBufferCount
+                }
                 val expectedToPlay = player.playWhenReady && player.playbackState != Player.STATE_ENDED
-                if (!expectedToPlay || (firstFrame && position != lastPosition)) lastMovement = now
+                val pictureAdvanced = frames?.let { it != lastFrameCount } ?: (firstFrame && position != lastPosition)
+                if (!expectedToPlay || pictureAdvanced) lastMovement = now
                 if (onFailed != null && now - lastMovement >= timeout) {
                     val where = if (firstFrame) position else requestedPosition
-                    Log.w(TAG, "No inline video progress for ${timeout / 1000} s")
+                    Log.w(TAG, "No inline video progress for ${timeout / 1000} s (rendered frames: $frames)")
                     fail(source.itemId, where, stalled = source)
                     return@launch
                 }
@@ -199,6 +205,7 @@ class InlineVideo(
                 if (duration > 0) {
                     _state.update { it.copy(progress = (position.toFloat() / duration).coerceIn(0f, 1f)) }
                 }
+                lastFrameCount = frames
                 lastPosition = position
                 delay(TICK_MS)
             }
